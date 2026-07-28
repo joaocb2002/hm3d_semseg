@@ -1,0 +1,38 @@
+# Copy to configs/local.yaml (ignored by Git) and edit only this file.
+# Every external path must be absolute. These values document the expected layout.
+paths:
+  habitat_lab_root: /absolute/path/to/habitat-lab
+  hm3d_root: /absolute/path/to/habitat-lab/data/scene_datasets/hm3d_v0.2
+  scene_dataset_config: /absolute/path/to/hm3d_annotated_basis.scene_dataset_config.json
+  objectnav_config: /absolute/path/to/the/actual/objectnav.yaml
+  taxonomy_mapping: /absolute/path/to/matterport_category_mappings.tsv
+  generated_data_root: /absolute/path/to/generated/hm3d-semseg
+  runs_root: /absolute/path/to/hm3d-semseg-runs
+  cache_root: /absolute/path/to/model-and-taxonomy-cache
+
+# The local ObjectNav config should be resolved before setting profile.
+camera:
+  profile: null
+  # Pilot may stay level-only. For full generation, explicitly choose values after
+  # inspecting controller behavior; the local config may expose increments but not bounds.
+  pitch_degrees: null
+  require_explicit_pitch: false
+  allow_mismatch: false
+
+taxonomy:
+  # Pinned authoritative Habitat-Sim mapping used for the frozen scene audits.
+  expected_mapping_sha256: 36e40c25cbe32c8bf34ef55f199f194671045106914dd09b1581aeedcf051a05
+
+model:
+  # Paste the resolved_revision printed by `hm3d-semseg download-model`.
+  # Training searches paths.cache_root for this exact snapshot.
+  revision: null
+  local_files_only: true
+
+training:
+  # Auto verifies real kernels and selects the working GPU with most free memory.
+  # Use cpu or cuda:N only for an intentional override.
+  device: auto
+  # Set these to generated, validated dataset directories before training.
+  train_dataset: null
+  development_dataset: null

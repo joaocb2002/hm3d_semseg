@@ -1,0 +1,87 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hm3d-semseg"
+version = "0.1.0"
+description = "Reproducible HM3D-Semantics rendering and SegFormer semantic segmentation"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "hm3d-semseg contributors"}]
+dependencies = [
+  "numpy>=1.23,<3",
+  "Pillow>=9.5",
+  "PyYAML>=6",
+  "typer>=0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.8",
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.6",
+]
+render = [
+  "hydra-core>=1.3,<1.4",
+  "omegaconf>=2.3,<2.4",
+]
+train = [
+  "huggingface-hub>=0.23",
+  "matplotlib>=3.7",
+  "safetensors>=0.4",
+  "scipy>=1.10",
+  "tensorboard>=2.14",
+  "transformers>=4.40",
+]
+all = [
+  "hydra-core>=1.3,<1.4",
+  "huggingface-hub>=0.23",
+  "mypy>=1.8",
+  "omegaconf>=2.3,<2.4",
+  "matplotlib>=3.7",
+  "pytest>=7.4",
+  "pytest-cov>=4.1",
+  "ruff>=0.6",
+  "safetensors>=0.4",
+  "scipy>=1.10",
+  "tensorboard>=2.14",
+  "transformers>=4.40",
+]
+
+[project.scripts]
+hm3d-semseg = "hm3d_semseg.cli.app:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "unit: fast tests with no Habitat, GPU, HM3D, or network dependency",
+  "habitat: integration tests requiring Habitat-Sim and HM3D",
+  "gpu: tests requiring a functioning GPU",
+  "slow: long-running tests",
+  "smoke: end-to-end smoke tests",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 96
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "RUF"]
+ignore = ["UP007"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/hm3d_semseg/cli/app.py" = ["B008"]
+"tests/unit/test_checkpoint.py" = ["E402"]
+"tests/unit/test_model_contract.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_unused_ignores = true

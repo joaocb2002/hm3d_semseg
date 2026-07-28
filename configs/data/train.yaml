@@ -1,0 +1,25 @@
+camera:
+  pitch_degrees: null
+  require_explicit_pitch: true
+sampling:
+  seed: 2027
+  positions_per_scene: 128
+  yaws_per_position: 4
+  min_position_distance_m: 1.0
+  floor_separation_m: 1.5
+  max_attempts_per_position: 100
+  min_valid_pixel_fraction: 0.05
+  max_unknown_fraction: 0.95
+  # Set only after the training audit; do not combine an extreme value with extreme weights.
+  class_aware_fraction: 0.0
+dataset:
+  schema_version: "1.0"
+  name: train-v1
+  split: train
+  output_dir: null
+  rgb_codec: jpeg
+  jpeg_quality: 95
+  store_depth: false
+  max_scenes: null
+  max_samples_per_scene: 512
+  validation_only: false

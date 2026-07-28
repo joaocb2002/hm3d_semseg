@@ -1,0 +1,38 @@
+schema_version: "1.0"
+rgb:
+  uuid: rgb_sensor
+  sensor_type: HabitatSimRGBSensor
+  width: 480
+  height: 640
+  hfov: 42.0
+  position: [0.0, 1.31, 0.0]
+  orientation: [0.0, 0.0, 0.0]
+depth:
+  uuid: depth_sensor
+  sensor_type: HabitatSimDepthSensor
+  width: 480
+  height: 640
+  hfov: 42.0
+  position: [0.0, 1.31, 0.0]
+  orientation: [0.0, 0.0, 0.0]
+  min_depth: 0.5
+  max_depth: 5.0
+  normalize_depth: false
+semantic: null
+agent:
+  name: main_agent
+  height: 1.41
+  radius: 0.17
+pitch:
+  supported: true
+  increment_degrees: null
+  minimum_degrees: null
+  maximum_degrees: null
+  source: official profile; bounds unresolved
+observation_transforms: {}
+provenance:
+  source: https://github.com/facebookresearch/habitat-challenge/blob/main/configs/benchmark/nav/objectnav/objectnav_v2_hm3d_stretch_challenge.yaml
+  fallback: true
+warnings:
+  - Official 2023 regression fixture only; the actual composed local config wins.
+

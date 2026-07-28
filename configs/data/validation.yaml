@@ -1,0 +1,25 @@
+camera:
+  pitch_degrees: null
+  require_explicit_pitch: true
+sampling:
+  seed: 42027
+  positions_per_scene: 64
+  yaws_per_position: 4
+  min_position_distance_m: 1.0
+  floor_separation_m: 1.5
+  max_attempts_per_position: 100
+  min_valid_pixel_fraction: 0.05
+  max_unknown_fraction: 0.95
+  class_aware_fraction: 0.0
+dataset:
+  schema_version: "1.0"
+  # Internal development scenes come from official train. The CLI's
+  # `--official-split val` creates a distinct official-val-v1 dataset.
+  name: development-v1
+  split: train
+  output_dir: null
+  rgb_codec: png
+  store_depth: false
+  max_scenes: null
+  max_samples_per_scene: 256
+  validation_only: false

@@ -1,0 +1,8 @@
+model:
+  model_id: nvidia/segformer-b2-finetuned-ade-512-512
+  # Set to the SHA printed by `hm3d-semseg download-model`.
+  revision: null
+  num_labels: 41
+  align_corners: false
+  local_files_only: true
+

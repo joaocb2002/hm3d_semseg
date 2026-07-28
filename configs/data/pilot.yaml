@@ -1,0 +1,23 @@
+camera:
+  pitch_degrees: [0.0]
+  require_explicit_pitch: false
+sampling:
+  seed: 2027
+  positions_per_scene: 2
+  yaws_per_position: 4
+  min_position_distance_m: 1.0
+  floor_separation_m: 1.5
+  max_attempts_per_position: 100
+  min_valid_pixel_fraction: 0.05
+  max_unknown_fraction: 0.95
+  class_aware_fraction: 0.0
+dataset:
+  schema_version: "1.0"
+  name: pilot
+  split: minival
+  output_dir: null
+  rgb_codec: png
+  store_depth: true
+  max_scenes: 1
+  max_samples_per_scene: 8
+  validation_only: false

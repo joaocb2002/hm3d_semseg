@@ -1,0 +1,26 @@
+model:
+  model_id: nvidia/segformer-b2-finetuned-ade-512-512
+  revision: null
+  num_labels: 41
+  align_corners: false
+  local_files_only: true
+training:
+  seed: 2027
+  device: auto
+  run_name: overfit_tiny
+  epochs: 50
+  batch_size: 2
+  workers: 0
+  encoder_learning_rate: 0.0001
+  classifier_learning_rate: 0.001
+  weight_decay: 0.0
+  warmup_fraction: 0.0
+  gradient_accumulation_steps: 1
+  gradient_clip_norm: 1.0
+  amp: false
+  class_weighting: none
+augmentation:
+  horizontal_flip_probability: 0.0
+  color_jitter: 0.0
+  blur_probability: 0.0
+  sensor_noise_std: 0.0

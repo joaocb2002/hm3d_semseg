@@ -1,0 +1,34 @@
+model:
+  model_id: nvidia/segformer-b2-finetuned-ade-512-512
+  revision: null
+  num_labels: 41
+  align_corners: false
+  local_files_only: true
+training:
+  seed: 2027
+  device: auto
+  run_name: segformer_b2_moderately_balanced
+  epochs: 20
+  batch_size: 2
+  workers: 4
+  encoder_learning_rate: 0.00006
+  classifier_learning_rate: 0.0006
+  weight_decay: 0.01
+  warmup_fraction: 0.05
+  gradient_accumulation_steps: 1
+  gradient_clip_norm: 1.0
+  amp: true
+  # Computed from this run's training manifest only, normalized, capped, saved, hashed.
+  class_weighting: inverse_sqrt
+  class_weight_cap: 5.0
+augmentation:
+  horizontal_flip_probability: 0.5
+  color_jitter: 0.1
+  blur_probability: 0.05
+  sensor_noise_std: 0.01
+evaluation:
+  batch_size: 1
+  workers: 2
+  bootstrap_seed: 2027
+  bootstrap_samples: 1000
+  calibration_bins: 15
