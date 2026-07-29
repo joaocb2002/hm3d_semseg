@@ -34,6 +34,7 @@ from hm3d_semseg.training.checkpoint import (
     update_checkpoint_progress,
 )
 from hm3d_semseg.training.plots import save_training_plots
+from hm3d_semseg.training.progress import TrainingProgress
 from hm3d_semseg.utils.device import select_torch_device
 from hm3d_semseg.utils.hashing import atomic_write_json, sha256_file
 from hm3d_semseg.utils.provenance import collect_provenance
@@ -131,11 +132,12 @@ def _save_qualitative(
     Image.fromarray(panel, mode="RGB").save(output)
 
 
-def train(config: ProjectConfig) -> Dict[str, Any]:
+def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any]:
     """Train and resume a baseline while saving complete run provenance."""
     import torch
     from torch.utils.data import DataLoader
 
+    progress = TrainingProgress(enabled=show_progress)
     if config.training.train_dataset is None:
         raise ValueError("training.train_dataset is required")
     if config.paths.runs_root is None:
@@ -145,10 +147,17 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
         and config.training.development_dataset is None
     ):
         raise ValueError("Early stopping is allowed only with a development dataset")
+    progress.message(f"Selecting training device (requested={config.training.device})...")
     device_selection = select_torch_device(config.training.device)
     device = device_selection.device
     using_cuda = device.startswith("cuda")
+    progress.message(f"Selected device: {device}")
+    progress.message(f"Validating training dataset: {config.training.train_dataset}")
     train_validation = validate_dataset(config.training.train_dataset)
+    progress.message(
+        "Training dataset valid: "
+        f"{train_validation['samples']} samples across {train_validation['scenes']} scenes"
+    )
     train_camera = CameraProfile.load(config.training.train_dataset / "camera_profile.yaml")
     if config.camera.profile is not None:
         assert_camera_compatible(
@@ -158,7 +167,15 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
         )
     development_validation = None
     if config.training.development_dataset is not None:
+        progress.message(
+            f"Validating development dataset: {config.training.development_dataset}"
+        )
         development_validation = validate_dataset(config.training.development_dataset)
+        progress.message(
+            "Development dataset valid: "
+            f"{development_validation['samples']} samples across "
+            f"{development_validation['scenes']} scenes"
+        )
         development_camera = CameraProfile.load(
             config.training.development_dataset / "camera_profile.yaml"
         )
@@ -195,6 +212,9 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
     atomic_write_json(run / "provenance.json", provenance)
 
     source_checkpoint = config.training.resume
+    progress.message(
+        f"Loading model: {config.model.model_id}@{config.model.revision or 'unresolved'}"
+    )
     model = build_segformer(
         config.model,
         checkpoint=source_checkpoint,
@@ -212,6 +232,7 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
         augment=True,
         augmentation=config.augmentation,
         seed=config.training.seed,
+        max_samples=config.training.max_train_samples,
     )
     loader = DataLoader(
         dataset,
@@ -273,6 +294,25 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
     )
     total = sum(parameter.numel() for parameter in model.parameters())
     atomic_write_json(run / "parameter_counts.json", {"trainable": trainable, "total": total})
+    progress.start(
+        run=str(run),
+        device=device,
+        samples=len(dataset),
+        epochs=config.training.epochs,
+        batch_size=config.training.batch_size,
+        batches_per_epoch=len(loader),
+        steps_per_epoch=steps_per_epoch,
+        total_steps=total_steps,
+        completed_steps=global_step,
+        gradient_accumulation_steps=config.training.gradient_accumulation_steps,
+        amp=amp_enabled,
+        trainable_parameters=trainable,
+        total_parameters=total,
+        encoder_learning_rate=config.training.encoder_learning_rate,
+        classifier_learning_rate=config.training.classifier_learning_rate,
+        weight_decay=config.training.weight_decay,
+        warmup_steps=warmup_steps,
+    )
     camera_path = config.training.train_dataset / "camera_profile.yaml"
     model_metadata = {
         "model_id": config.model.model_id,
@@ -350,6 +390,12 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
                         "gpu_peak_memory_bytes": peak_memory,
                     },
                 )
+                progress.step(
+                    epoch=epoch,
+                    loss=float(loss.detach().cpu()),
+                    learning_rate=float(optimizer.param_groups[0]["lr"]),
+                    samples_per_second=samples_per_second,
+                )
                 if tensorboard is not None:
                     tensorboard.add_scalar(
                         "train/loss", float(loss.detach().cpu()), global_step
@@ -390,6 +436,7 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
             run / "qualitative" / f"epoch_{epoch:03d}.png",
             device,
         )
+        progress.phase(epoch=epoch, name="checkpoint")
         save_checkpoint(
             run / "checkpoints" / "last",
             model,
@@ -405,6 +452,7 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
         )
         primary_metric = -epoch_loss
         if config.training.development_dataset is not None:
+            progress.phase(epoch=epoch, name="development")
             evaluation = evaluate_model(
                 run / "checkpoints" / "last",
                 config.training.development_dataset,
@@ -466,6 +514,7 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
                 },
             )
             break
+    progress.close()
     summary = {
         "run": str(run),
         "epochs_completed": epochs_completed,
@@ -474,6 +523,11 @@ def train(config: ProjectConfig) -> Dict[str, Any]:
         "device": device,
         "amp": amp_enabled,
         "class_weighting": config.training.class_weighting,
+        "train_samples": len(dataset),
+        "batch_size": config.training.batch_size,
+        "batches_per_epoch": len(loader),
+        "optimizer_steps_per_epoch": steps_per_epoch,
+        "planned_optimizer_steps": total_steps,
         "warmup_steps": warmup_steps,
         "parameter_counts": {"trainable": trainable, "total": total},
     }

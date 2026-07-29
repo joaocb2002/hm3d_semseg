@@ -164,6 +164,11 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError("sampling.floor_separation_m must be positive")
     if not 0.0 <= config.training.warmup_fraction < 1.0:
         raise ConfigurationError("training.warmup_fraction must be in [0, 1)")
+    if (
+        config.training.max_train_samples is not None
+        and config.training.max_train_samples <= 0
+    ):
+        raise ConfigurationError("training.max_train_samples must be positive")
     if not re.fullmatch(r"(auto|cpu|cuda(?::\d+)?)", config.training.device.lower()):
         raise ConfigurationError("training.device must be auto, cpu, cuda, or cuda:N")
     if config.training.class_weighting not in {"none", "inverse_sqrt"}:

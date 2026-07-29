@@ -7,6 +7,7 @@ model:
 training:
   seed: 2027
   device: auto
+  max_train_samples: 4
   run_name: overfit_tiny
   epochs: 50
   batch_size: 2

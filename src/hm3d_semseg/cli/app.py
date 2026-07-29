@@ -243,9 +243,15 @@ def make_calibration_scene_split(
 def train(
     config: Path = typer.Option(..., "--config", exists=True),
     local_config: Path = typer.Option(..., "--local-config", exists=True),
+    show_progress: bool = typer.Option(True, "--progress/--no-progress"),
 ) -> None:
     """Fine-tune SegFormer-B2, with exact resume and best/last checkpoints."""
-    _print(run_training(load_config(command_config=config, local_config=local_config)))
+    _print(
+        run_training(
+            load_config(command_config=config, local_config=local_config),
+            show_progress=show_progress,
+        )
+    )
 
 
 @app.command()

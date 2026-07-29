@@ -27,9 +27,14 @@ class OfflineSegmentationDataset:
         augment: bool = False,
         augmentation: Optional[AugmentationConfig] = None,
         seed: int = 2027,
+        max_samples: Optional[int] = None,
     ) -> None:
         self.root = root.resolve()
         self.records = load_manifest(self.root / "manifest.jsonl")
+        if max_samples is not None:
+            if max_samples <= 0:
+                raise ValueError("max_samples must be positive")
+            self.records = self.records[:max_samples]
         self.augment = augment
         self.augmentation = augmentation or AugmentationConfig()
         self.seed = seed

@@ -99,6 +99,7 @@ class TrainingConfig:
     device: str = "auto"
     train_dataset: Optional[Path] = None
     development_dataset: Optional[Path] = None
+    max_train_samples: Optional[int] = None
     run_name: str = "segformer_b2_baseline"
     epochs: int = 20
     batch_size: int = 2

@@ -25,6 +25,8 @@ Review the checkpoint license; weights are not committed or redistributed.
 
 Set absolute `training.train_dataset` and optional
 `training.development_dataset` in `configs/local.yaml`. Validate both first.
+For the tiny-overfit diagnostic, keep `development_dataset: null`; otherwise it
+would evaluate the complete development set after every diagnostic epoch.
 `training.device` defaults to `auto`: before dataset scanning or model loading,
 the runtime executes a real kernel on each visible GPU and selects the working
 device with the most free memory. Set `cpu` or `cuda:N` only when an experiment
@@ -39,15 +41,26 @@ hm3d-semseg train \
   --local-config configs/local.yaml
 ```
 
-Use only two to four samples. Loss must fall clearly and training predictions
-must approach memorization. There is no universal numeric threshold, but failure
-to achieve roughly near-perfect supported-pixel accuracy after the loss plateaus
-blocks full training; inspect mask alignment, class 0, resize, loss, and learning
-rate.
+Training prints the selected device, effective sample count, batching and
+optimizer-step plan, AMP state, and trainable/total parameter counts. One
+optimizer-step progress bar reports completed/remaining steps, elapsed time,
+ETA, current epoch, loss, learning rate, and throughput. It is enabled by
+default; add `--no-progress` for quiet batch logs.
+
+The experiment config enforces `training.max_train_samples: 4`, taking the first
+four records in deterministic manifest order. The effective count is written as
+`train_samples` in the run summary. Loss must fall clearly and training
+predictions must approach memorization. There is no universal numeric threshold,
+but failure to achieve roughly near-perfect supported-pixel accuracy after the
+loss plateaus blocks full training; inspect mask alignment, class 0, resize,
+loss, and learning rate.
 
 Development baseline:
 
 ```bash
+# First set this absolute path in configs/local.yaml:
+# training.development_dataset: /absolute/path/to/development-v1
+
 hm3d-semseg train \
   --config configs/experiments/segformer_b2_baseline.yaml \
   --local-config configs/local.yaml
