@@ -64,7 +64,9 @@ class PoseSampler:
         for position_index, position in enumerate(positions):
             for heading in range(self.config.yaws_per_position):
                 yaw = math.fmod(
-                    yaw_offset + position_index * yaw_step / 2.0 + heading * yaw_step,
+                    yaw_offset
+                    + position_index * self.config.yaw_offset_per_position_degrees
+                    + heading * yaw_step,
                     360.0,
                 )
                 pitch = float(pitch_degrees[(position_index + heading) % len(pitch_degrees)])

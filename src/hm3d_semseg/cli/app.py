@@ -15,6 +15,7 @@ from hm3d_semseg.camera.profile import camera_differences, official_2023_profile
 from hm3d_semseg.camera.resolve import resolve_camera_profile
 from hm3d_semseg.config.loader import load_config
 from hm3d_semseg.data.generate import generate_dataset as run_generation
+from hm3d_semseg.data.progress import DatasetGenerationProgress
 from hm3d_semseg.data.splits import make_calibration_split, make_development_split
 from hm3d_semseg.data.validate import validate_dataset as run_dataset_validation
 from hm3d_semseg.diagnostics.smoke import run_smoke_test
@@ -154,6 +155,7 @@ def generate_dataset(
     official_split: Optional[str] = typer.Option(None, "--official-split"),
     dataset_name: Optional[str] = typer.Option(None, "--dataset-name"),
     dry_run: bool = typer.Option(False, "--dry-run"),
+    show_progress: bool = typer.Option(True, "--progress/--no-progress"),
 ) -> None:
     """Generate or resume a deterministic offline dataset, grouped by scene."""
     dataset_overrides: Dict[str, Any] = {}
@@ -178,15 +180,16 @@ def generate_dataset(
         _print(plan)
         return
     _print({"generation_plan": plan})
-    _print(
-        run_generation(
+    with DatasetGenerationProgress(enabled=show_progress) as progress:
+        result = run_generation(
             resolved,
             split_list=split_list,
             max_scenes=max_scenes,
             max_samples_per_scene=max_samples_per_scene,
             validation_only=False,
+            progress=progress,
         )
-    )
+    _print(result)
 
 
 @app.command("validate-dataset")

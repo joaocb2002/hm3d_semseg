@@ -53,6 +53,7 @@ class SamplingConfig:
     seed: int = 2027
     positions_per_scene: int = 32
     yaws_per_position: int = 4
+    yaw_offset_per_position_degrees: float = 30.0
     min_position_distance_m: float = 1.0
     floor_separation_m: float = 1.5
     max_attempts_per_position: int = 100

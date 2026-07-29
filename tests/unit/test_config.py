@@ -53,6 +53,17 @@ def test_weighting_and_warmup_are_validated() -> None:
         load_config(cli_overrides={"training": {"device": "gpu"}})
 
 
+def test_yaw_offset_per_position_is_validated() -> None:
+    config = load_config(
+        cli_overrides={"sampling": {"yaw_offset_per_position_degrees": 30.0}}
+    )
+    assert config.sampling.yaw_offset_per_position_degrees == 30.0
+    with pytest.raises(ConfigurationError, match="yaw_offset_per_position_degrees"):
+        load_config(
+            cli_overrides={"sampling": {"yaw_offset_per_position_degrees": 360.0}}
+        )
+
+
 def test_unpinned_remote_model_is_rejected_before_import_or_download() -> None:
     with pytest.raises(ConfigurationError, match=r"model\.revision"):
         build_segformer(ModelConfig(revision=None))

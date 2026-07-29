@@ -5,6 +5,7 @@ sampling:
   seed: 42027
   positions_per_scene: 64
   yaws_per_position: 4
+  yaw_offset_per_position_degrees: 30.0
   min_position_distance_m: 1.0
   floor_separation_m: 1.5
   max_attempts_per_position: 100

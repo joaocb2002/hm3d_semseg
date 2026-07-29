@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import MISSING, fields, is_dataclass
 from pathlib import Path
@@ -152,6 +153,11 @@ def _validate(config: ProjectConfig) -> None:
     for key in ("positions_per_scene", "yaws_per_position", "max_attempts_per_position"):
         if getattr(config.sampling, key) <= 0:
             raise ConfigurationError(f"sampling.{key} must be positive")
+    yaw_offset = config.sampling.yaw_offset_per_position_degrees
+    if not math.isfinite(yaw_offset) or not 0.0 <= yaw_offset < 360.0:
+        raise ConfigurationError(
+            "sampling.yaw_offset_per_position_degrees must be finite and in [0, 360)"
+        )
     if config.sampling.min_position_distance_m < 0:
         raise ConfigurationError("sampling.min_position_distance_m must be nonnegative")
     if config.sampling.floor_separation_m <= 0:

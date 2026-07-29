@@ -39,7 +39,8 @@ Use `hm3d-semseg COMMAND --help` as the executable authority.
   `--split-list`; `--max-scenes` and `--max-samples-per-scene` default to YAML;
   `--official-split` overrides the filesystem split and selects a distinct
   `official-<split>-v1` name; `--dataset-name` overrides that name;
-  `--dry-run` defaults false.
+  `--dry-run` defaults false. Scene/view progress with elapsed time and ETA is
+  enabled by default for real generation; `--no-progress` disables it.
 - `validate-dataset`: required `--dataset`; writes its report and eight
   deterministic manual panels under `<dataset>/validation`.
 - `download-model`: required `--local-config`; `--model-id` defaults to

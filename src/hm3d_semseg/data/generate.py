@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Protocol, Sequence
 
 import numpy as np
 import yaml
@@ -25,6 +25,20 @@ from hm3d_semseg.scenes.discovery import (
 from hm3d_semseg.taxonomy.mapping import MatterportMapping, TaxonomyMapper
 from hm3d_semseg.utils.hashing import atomic_write_json, atomic_write_text, canonical_hash
 from hm3d_semseg.utils.provenance import collect_provenance
+
+
+class GenerationProgress(Protocol):
+    """UI-independent progress events emitted by dataset generation."""
+
+    def start(self, total_scenes: int, total_samples: int, existing_samples: int) -> None: ...
+
+    def scene_start(self, scene_index: int, scene_id: str) -> None: ...
+
+    def samples_start(self, scene_id: str, total_samples: int) -> None: ...
+
+    def sample_complete(self, status: str) -> None: ...
+
+    def scene_complete(self) -> None: ...
 
 
 def _require_path(value: Optional[Path], name: str) -> Path:
@@ -139,6 +153,7 @@ def generate_dataset(
     max_scenes: Optional[int] = None,
     max_samples_per_scene: Optional[int] = None,
     validation_only: bool = False,
+    progress: Optional[GenerationProgress] = None,
 ) -> Dict[str, Any]:
     """Generate or safely resume a deterministic directory-backed dataset."""
     hm3d_root = _require_path(config.paths.hm3d_root, "hm3d_root")
@@ -214,8 +229,12 @@ def generate_dataset(
     existing_ids = {record.sample_id for record in existing}
     new_records: List[ManifestRecord] = []
     sampler = PoseSampler(config.sampling)
-    for scene in scenes:
+    if progress is not None:
+        progress.start(len(scenes), len(scenes) * sample_limit, len(existing))
+    for scene_index, scene in enumerate(scenes, start=1):
         assert scene.rgb_mesh is not None
+        if progress is not None:
+            progress.scene_start(scene_index, scene.scene_id)
         try:
             renderer = HabitatSceneRenderer(
                 scene.rgb_mesh,
@@ -242,10 +261,14 @@ def generate_dataset(
                 pitches,
                 sample_limit,
             )
+            if progress is not None:
+                progress.samples_start(scene.scene_id, len(poses))
             accepted = 0
             for pose_index, pose in enumerate(poses):
                 sample_id = f"{scene.scene_id}-{pose_index:06d}"
                 if sample_id in existing_ids:
+                    if progress is not None:
+                        progress.sample_complete("existing")
                     continue
                 try:
                     frame = renderer.render(pose)
@@ -268,8 +291,12 @@ def generate_dataset(
                 valid_fraction = float(np.mean(mask != config.taxonomy.ignore_index))
                 unknown_fraction = float(np.mean(mask == 0))
                 if valid_fraction < config.sampling.min_valid_pixel_fraction:
+                    if progress is not None:
+                        progress.sample_complete("rejected")
                     continue
                 if unknown_fraction > config.sampling.max_unknown_fraction:
+                    if progress is not None:
+                        progress.sample_complete("rejected")
                     continue
                 paths = _record_paths(
                     root,
@@ -326,6 +353,8 @@ def generate_dataset(
                 new_records.append(record)
                 existing_ids.add(sample_id)
                 accepted += 1
+                if progress is not None:
+                    progress.sample_complete("accepted")
                 if accepted >= sample_limit:
                     break
             if new_records:
@@ -335,6 +364,8 @@ def generate_dataset(
                     handle.flush()
                     os.fsync(handle.fileno())
                 new_records.clear()
+        if progress is not None:
+            progress.scene_complete()
     records = load_manifest(manifest_path) if manifest_path.exists() else []
     summary["generated_samples"] = len(records)
     summary["manifest_hash"] = canonical_hash([record.to_dict() for record in records])

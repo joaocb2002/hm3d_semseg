@@ -32,4 +32,6 @@ def test_pose_sampling_is_reproducible_and_spatial() -> None:
         return PoseSampler(config).sample("scene", point, [-30, 0, 30], 4)
 
     assert run() == run()
-    assert len(run()) == 4
+    poses = run()
+    assert len(poses) == 4
+    assert (poses[2].yaw_degrees - poses[0].yaw_degrees) % 360.0 == pytest.approx(30.0)
