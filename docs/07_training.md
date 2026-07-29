@@ -1,5 +1,14 @@
 # 7. Training
 
+Leave the rendering environment and run every command in this guide from the
+host-matched training environment:
+
+```bash
+conda activate hm3d-semseg-train
+export PYTHONNOUSERSITE=1
+cd ~/projects/hm3d-semseg
+```
+
 First download the checkpoint explicitly:
 
 ```bash

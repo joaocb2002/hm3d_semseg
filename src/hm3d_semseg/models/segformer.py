@@ -187,7 +187,8 @@ def download_model(model_id: str, cache_dir: Path, revision: Optional[str]) -> D
         from huggingface_hub import model_info, snapshot_download
     except ImportError as error:
         raise OptionalDependencyError(
-            "huggingface_hub is required; install the train extra."
+            "huggingface_hub is required; activate the hm3d-semseg-train environment "
+            "or install the train extra."
         ) from error
     info = model_info(model_id, revision=revision)
     resolved_revision = info.sha
