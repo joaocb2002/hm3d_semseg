@@ -47,13 +47,43 @@ optimizer-step progress bar reports completed/remaining steps, elapsed time,
 ETA, current epoch, loss, learning rate, and throughput. It is enabled by
 default; add `--no-progress` for quiet batch logs.
 
-The experiment config enforces `training.max_train_samples: 4`, taking the first
-four records in deterministic manifest order. The effective count is written as
-`train_samples` in the run summary. Loss must fall clearly and training
-predictions must approach memorization. There is no universal numeric threshold,
-but failure to achieve roughly near-perfect supported-pixel accuracy after the
-loss plateaus blocks full training; inspect mask alignment, class 0, resize,
-loss, and learning rate.
+The experiment config enforces `training.max_train_samples: 4` and
+`training.sample_selection: scene_diverse`. A seeded selection takes one view
+from each of four different scenes. The IDs are recorded in resolved provenance
+and the summary, so repeated runs use the same four samples. Limited runs fully
+decode and validate only their selected files while still checking the complete
+manifest, schema, hashes, duplicate IDs, and scene-split contract. Runs without
+`max_train_samples` retain complete file validation.
+
+After training, `training.evaluate_train_subset: true` evaluates the best
+checkpoint on all four selected samples. Review
+`diagnostics/train_subset/summary.json`, its per-sample accuracy and per-class
+IoU plots, row-normalized confusion matrix, and four labeled qualitative panels.
+These are memorization measurements on training images, not generalization
+results. Loss must fall clearly and predictions must approach memorization.
+There is no universal numeric threshold, but failure to achieve roughly
+near-perfect supported-pixel accuracy after the loss plateaus blocks full
+training; inspect mask alignment, class 0, resize, loss, and learning rate.
+
+To inspect the richer interactive log in a browser, use the actual run directory
+printed by the command:
+
+```bash
+# Replace the suffix with the actual run directory printed by training.
+OVERFIT_RUN_DIR=/home/joaocb2002/hm3d-semseg-data/runs/overfit_tiny-002
+tensorboard --logdir "$OVERFIT_RUN_DIR/tensorboard"
+```
+
+Open `http://localhost:6006`. The saved PNG is a convenient static loss/LR
+snapshot; TensorBoard additionally provides zooming, smoothing, exact values,
+wall time, gradient norm, throughput, GPU memory, and diagnostic/development
+metrics. On a remote server, forward port 6006 over SSH rather than exposing the
+TensorBoard server publicly.
+
+The two learning-rate curves use one cosine multiplier: a scalar schedule that
+moves from 1 to 0 over the planned optimizer steps. Multiplying both base rates
+by the same scalar preserves their 10:1 classifier/pretrained ratio until both
+reach zero at the end.
 
 Development baseline:
 
@@ -70,6 +100,8 @@ The complete model is fine-tuned. AdamW uses a lower pretrained-parameter LR and
 higher new-classifier LR. Loss is raw-logit cross-entropy with ignore 255.
 Cosine decay, clipping, AMP, accumulation, deterministic seeds, atomic best/last
 checkpoints, optimizer/scheduler/scaler resume, and JSONL metrics are included.
+See [losses, metrics, and run artifacts](losses_and_metrics.md) for the exact
+formulas, interpretation, checkpoint-selection rules, and output-file map.
 
 The baseline is unweighted. After the training-pixel census, a controlled
 moderate alternative is available:
@@ -84,9 +116,15 @@ It computes inverse-square-root weights from the training manifest only,
 normalizes and caps them at 5, then saves the vector and SHA-256. Do not combine
 this with nonzero class-aware oversampling.
 
-Runs contain resolved config, provenance, parameter counts, metrics,
-checkpoints, plots/qualitative directories, evaluations, and summary. Resume by
-setting `training.resume` to a prior `checkpoints/last`; run history is appended.
+Runs contain resolved config, provenance, parameter counts, raw
+`metrics.jsonl`, compact `metrics_summary.json`, TensorBoard events, checkpoints,
+plots/qualitative directories, evaluations, and `summary.json`. Static plots
+include loss/learning-rate and optimization diagnostics; development runs also
+plot development loss and known-class mIoU. A fresh run never mixes with an
+existing directory: if the requested name exists, the new run is allocated
+`<name>-002`, then `<name>-003`, and so on. Resume by setting
+`training.resume` to a prior `checkpoints/last`; only an explicit resume reuses
+the requested run directory and appends its history.
 
 After development, freeze recipe and duration. Generate all 145 train scenes,
 set development dataset null, choose a new final run name, and train without

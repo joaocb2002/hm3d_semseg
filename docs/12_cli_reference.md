@@ -52,7 +52,13 @@ Use `hm3d-semseg COMMAND --help` as the executable authority.
   `--local-config`; `--fit-scenes 12`.
 - `train`: required `--config` and `--local-config`; optimizer-step progress,
   elapsed time, ETA, live loss/LR/throughput, setup, and parameter counts are
-  shown by default; `--no-progress` disables terminal progress output.
+  shown by default; `--no-progress` disables terminal progress output. Limited
+  runs validate only their deterministic selected files plus global dataset
+  contracts. Every completed run writes raw `metrics.jsonl`, compact
+  `metrics_summary.json`, TensorBoard events, and static loss/LR plus optimization
+  plots; development runs add a development loss/mIoU plot and complete
+  per-epoch evaluation reports. Fresh run-name collisions allocate a numbered
+  directory instead of mixing artifacts.
 - `evaluate`: required `--checkpoint`, `--dataset`, and `--output`; optional
   `--config`, `--local-config`, and `--device`; `--temperature 1.0`.
 - `calibrate`: required `--checkpoint`, `--dataset`, and `--output`; optional

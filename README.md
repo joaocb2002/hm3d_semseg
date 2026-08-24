@@ -130,6 +130,8 @@ Follow the numbered guide in order:
 11. [Troubleshooting](docs/11_troubleshooting.md)
 12. [CLI reference](docs/12_cli_reference.md)
 
+Reference: [losses, metrics, and run artifacts](docs/losses_and_metrics.md).
+
 The complete execution sequence is: install; configure local paths; run
 `doctor`; freeze the camera; run unit tests; inspect minival; run Habitat tests;
 audit minival; generate and validate the pilot; explicitly download the model;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from pathlib import Path
 from typing import Any, Dict
 
 from hm3d_semseg.config.schema import ProjectConfig
@@ -56,7 +57,7 @@ def run_smoke_test(config: ProjectConfig) -> Dict[str, Any]:
     smoke.augmentation.sensor_noise_std = 0.0
     smoke.model.local_files_only = True
     training = train(smoke)
-    run_root = config.paths.runs_root / "smoke"
+    run_root = Path(training["run"])
     checkpoint = run_root / "checkpoints" / "last"
     evaluation = evaluate_model(
         checkpoint,

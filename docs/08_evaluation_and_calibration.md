@@ -22,6 +22,10 @@ Probability metrics are streamed: categorical NLL, multiclass Brier, 15-bin ECE,
 reliability bins, and correct/incorrect entropy. Evaluation does not retain
 full-resolution probability tensors.
 
+See [losses, metrics, and run artifacts](losses_and_metrics.md) for formulas,
+intuitive interpretations, reporting priorities, absent-class rules, and the
+exact JSON/NPY/plot paths produced by training and evaluation.
+
 Use the official 36-scene validation only after freezing:
 
 ```bash

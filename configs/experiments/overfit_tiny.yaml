@@ -8,6 +8,8 @@ training:
   seed: 2027
   device: auto
   max_train_samples: 4
+  sample_selection: scene_diverse
+  evaluate_train_subset: true
   run_name: overfit_tiny
   epochs: 50
   batch_size: 2

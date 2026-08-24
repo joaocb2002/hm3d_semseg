@@ -6,12 +6,33 @@ import os
 import random
 import shutil
 import tempfile
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, Optional
 
 import numpy as np
 
 from hm3d_semseg.utils.hashing import atomic_write_json
+
+
+@contextmanager
+def _without_model_save_progress() -> Iterator[None]:
+    """Hide Transformers' shard bar while preserving the caller's prior setting."""
+    try:
+        from transformers.utils import logging as transformers_logging
+    except ImportError:
+        yield
+        return
+
+    is_enabled = getattr(transformers_logging, "is_progress_bar_enabled", None)
+    was_enabled = bool(is_enabled()) if is_enabled is not None else True
+    if was_enabled:
+        transformers_logging.disable_progress_bar()
+    try:
+        yield
+    finally:
+        if was_enabled:
+            transformers_logging.enable_progress_bar()
 
 
 def atomic_torch_save(value: Any, path: Path) -> None:
@@ -50,7 +71,8 @@ def save_checkpoint(
     temporary = Path(tempfile.mkdtemp(prefix=f".{target.name}.", dir=str(target.parent)))
     backup = target.parent / f".{target.name}.previous"
     try:
-        model.save_pretrained(temporary, safe_serialization=True)
+        with _without_model_save_progress():
+            model.save_pretrained(temporary, safe_serialization=True)
         state: Dict[str, Any] = {
             "epoch": epoch,
             "step": step,

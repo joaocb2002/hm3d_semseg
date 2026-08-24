@@ -169,8 +169,24 @@ def _validate(config: ProjectConfig) -> None:
         and config.training.max_train_samples <= 0
     ):
         raise ConfigurationError("training.max_train_samples must be positive")
+    if config.training.sample_selection not in {"manifest_order", "scene_diverse"}:
+        raise ConfigurationError(
+            "training.sample_selection must be 'manifest_order' or 'scene_diverse'"
+        )
+    if (
+        config.training.evaluate_train_subset
+        and config.training.max_train_samples is None
+    ):
+        raise ConfigurationError(
+            "training.evaluate_train_subset requires training.max_train_samples"
+        )
     if not re.fullmatch(r"(auto|cpu|cuda(?::\d+)?)", config.training.device.lower()):
         raise ConfigurationError("training.device must be auto, cpu, cuda, or cuda:N")
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", config.training.run_name):
+        raise ConfigurationError(
+            "training.run_name must be a simple directory name containing only "
+            "letters, numbers, dots, underscores, and hyphens"
+        )
     if config.training.class_weighting not in {"none", "inverse_sqrt"}:
         raise ConfigurationError("training.class_weighting must be 'none' or 'inverse_sqrt'")
     if config.training.class_weight_cap < 1.0:

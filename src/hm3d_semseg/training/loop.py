@@ -16,7 +16,7 @@ from PIL import Image
 from hm3d_semseg.camera.profile import CameraProfile, assert_camera_compatible
 from hm3d_semseg.config.loader import save_resolved_config
 from hm3d_semseg.config.schema import ProjectConfig
-from hm3d_semseg.data.dataset import OfflineSegmentationDataset
+from hm3d_semseg.data.dataset import OfflineSegmentationDataset, select_manifest_records
 from hm3d_semseg.data.schema import load_manifest
 from hm3d_semseg.data.storage import load_mask
 from hm3d_semseg.data.validate import validate_dataset
@@ -33,8 +33,11 @@ from hm3d_semseg.training.checkpoint import (
     save_checkpoint,
     update_checkpoint_progress,
 )
+from hm3d_semseg.training.diagnostics import evaluate_training_subset
 from hm3d_semseg.training.plots import save_training_plots
 from hm3d_semseg.training.progress import TrainingProgress
+from hm3d_semseg.training.reporting import summarize_training_metrics
+from hm3d_semseg.training.run_directory import allocate_run_directory
 from hm3d_semseg.utils.device import select_torch_device
 from hm3d_semseg.utils.hashing import atomic_write_json, sha256_file
 from hm3d_semseg.utils.provenance import collect_provenance
@@ -102,21 +105,20 @@ def _resolve_class_weights(
 
 def _save_qualitative(
     model: Any,
-    dataset_root: Path,
+    dataset: OfflineSegmentationDataset,
     model_config: Any,
     output: Path,
     device: str,
 ) -> None:
     import torch
 
-    fixed = OfflineSegmentationDataset(dataset_root, augment=False)
-    if not fixed.records:
+    if not dataset.records:
         return
-    item = fixed[0]
-    record = fixed.records[0]
-    with Image.open(dataset_root / record.rgb) as handle:
+    item = dataset[0]
+    record = dataset.records[0]
+    with Image.open(dataset.root / record.rgb) as handle:
         rgb = np.asarray(handle.convert("RGB"), dtype=np.uint8).copy()
-    target = load_mask(dataset_root / record.mask)
+    target = load_mask(dataset.root / record.mask)
     model.eval()
     with torch.inference_mode():
         result = predict(
@@ -152,11 +154,36 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     device = device_selection.device
     using_cuda = device.startswith("cuda")
     progress.message(f"Selected device: {device}")
-    progress.message(f"Validating training dataset: {config.training.train_dataset}")
-    train_validation = validate_dataset(config.training.train_dataset)
+    manifest_records = load_manifest(config.training.train_dataset / "manifest.jsonl")
+    selected_records = select_manifest_records(
+        manifest_records,
+        config.training.max_train_samples,
+        strategy=config.training.sample_selection,
+        seed=config.training.seed,
+    )
+    selected_sample_ids = [record.sample_id for record in selected_records]
+    limited_training = config.training.max_train_samples is not None
+    if limited_training:
+        progress.message(
+            "Selected deterministic training subset: "
+            f"{len(selected_records)} samples across "
+            f"{len({record.scene_id for record in selected_records})} scenes "
+            f"(strategy={config.training.sample_selection})"
+        )
+        progress.message(
+            f"Validating selected training subset: {config.training.train_dataset}"
+        )
+    else:
+        progress.message(f"Validating training dataset: {config.training.train_dataset}")
+    train_validation = validate_dataset(
+        config.training.train_dataset,
+        sample_ids=selected_sample_ids if limited_training else None,
+    )
     progress.message(
-        "Training dataset valid: "
-        f"{train_validation['samples']} samples across {train_validation['scenes']} scenes"
+        f"Training {train_validation['validation_scope']} valid: "
+        f"{train_validation['samples']} samples across {train_validation['scenes']} scenes "
+        f"(manifest: {train_validation['manifest_samples']} samples, "
+        f"{train_validation['manifest_scenes']} scenes)"
     )
     train_camera = CameraProfile.load(config.training.train_dataset / "camera_profile.yaml")
     if config.camera.profile is not None:
@@ -188,8 +215,17 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 "Train/development scene leakage: " + ", ".join(sorted(overlap)[:10])
             )
     _seed_everything(config.training.seed, seed_cuda=using_cuda)
-    run = config.paths.runs_root / config.training.run_name
-    run.mkdir(parents=True, exist_ok=True)
+    source_checkpoint = config.training.resume
+    run = allocate_run_directory(
+        config.paths.runs_root,
+        config.training.run_name,
+        resuming=source_checkpoint is not None,
+    )
+    if run.name != config.training.run_name:
+        progress.message(
+            f"Run '{config.training.run_name}' already exists; writing this fresh run "
+            f"to '{run.name}'."
+        )
     for directory in (
         "checkpoints",
         "tensorboard",
@@ -207,11 +243,14 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             "device_selection": device_selection.to_dict(),
             "train_dataset_validation": train_validation,
             "development_dataset_validation": development_validation,
+            "requested_run_name": config.training.run_name,
+            "allocated_run": str(run),
+            "training_sample_selection": config.training.sample_selection,
+            "training_sample_ids": selected_sample_ids if limited_training else None,
         }
     )
     atomic_write_json(run / "provenance.json", provenance)
 
-    source_checkpoint = config.training.resume
     progress.message(
         f"Loading model: {config.model.model_id}@{config.model.revision or 'unresolved'}"
     )
@@ -232,7 +271,12 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         augment=True,
         augmentation=config.augmentation,
         seed=config.training.seed,
-        max_samples=config.training.max_train_samples,
+        sample_ids=selected_sample_ids if limited_training else None,
+    )
+    qualitative_dataset = OfflineSegmentationDataset(
+        config.training.train_dataset,
+        augment=False,
+        sample_ids=selected_sample_ids[:1],
     )
     loader = DataLoader(
         dataset,
@@ -259,7 +303,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         learning_rate_scale,
     )
     amp_enabled = config.training.amp and using_cuda
-    scaler = torch.cuda.amp.GradScaler(enabled=amp_enabled)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
     start_epoch = 0
     global_step = 0
     best_metric: Optional[float] = None
@@ -293,7 +337,23 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
     total = sum(parameter.numel() for parameter in model.parameters())
-    atomic_write_json(run / "parameter_counts.json", {"trainable": trainable, "total": total})
+    optimizer_groups = [
+        {
+            "name": str(group.get("group_name", f"group_{index}")),
+            "parameters": sum(parameter.numel() for parameter in group["params"]),
+            "base_learning_rate": float(group.get("initial_lr", group["lr"])),
+            "weight_decay": float(group["weight_decay"]),
+        }
+        for index, group in enumerate(groups)
+    ]
+    atomic_write_json(
+        run / "parameter_counts.json",
+        {
+            "trainable": trainable,
+            "total": total,
+            "optimizer_groups": optimizer_groups,
+        },
+    )
     progress.start(
         run=str(run),
         device=device,
@@ -337,7 +397,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             pixels = batch["pixel_values"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
             samples_since_step += int(pixels.shape[0])
-            with torch.cuda.amp.autocast(enabled=amp_enabled):
+            with torch.amp.autocast("cuda", enabled=amp_enabled):
                 raw_logits = model(pixel_values=pixels).logits
                 loss = segmentation_loss(
                     raw_logits,
@@ -385,6 +445,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                         "loss": float(loss.detach().cpu()),
                         "gradient_norm": float(gradient_norm.detach().cpu()),
                         "learning_rates": [group["lr"] for group in optimizer.param_groups],
+                        "samples": samples_since_step,
                         "step_seconds": step_seconds,
                         "samples_per_second": samples_per_second,
                         "gpu_peak_memory_bytes": peak_memory,
@@ -406,8 +467,9 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                         global_step,
                     )
                     for group_index, group in enumerate(optimizer.param_groups):
+                        group_name = str(group.get("group_name", f"group_{group_index}"))
                         tensorboard.add_scalar(
-                            f"train/learning_rate_{group_index}",
+                            f"train/learning_rate_{group_name}",
                             group["lr"],
                             global_step,
                         )
@@ -431,7 +493,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             tensorboard.add_scalar("train/epoch_loss", epoch_loss, epoch)
         _save_qualitative(
             model,
-            config.training.train_dataset,
+            qualitative_dataset,
             config.model,
             run / "qualitative" / f"epoch_{epoch:03d}.png",
             device,
@@ -515,8 +577,56 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             )
             break
     progress.close()
+    subset_evaluation_summary = None
+    if config.training.evaluate_train_subset:
+        diagnostic_checkpoint = run / "checkpoints" / "best"
+        progress.message(
+            "Evaluating memorization on the selected training subset using "
+            f"{diagnostic_checkpoint}"
+        )
+        diagnostic_dataset = OfflineSegmentationDataset(
+            config.training.train_dataset,
+            augment=False,
+            sample_ids=selected_sample_ids,
+        )
+        diagnostic_model = build_segformer(
+            config.model,
+            checkpoint=diagnostic_checkpoint,
+            cache_dir=config.paths.cache_root,
+        ).to(device)
+        diagnostic_report = evaluate_training_subset(
+            diagnostic_model,
+            diagnostic_dataset,
+            run / "diagnostics" / "train_subset",
+            config.model,
+            checkpoint=diagnostic_checkpoint,
+            device=device,
+            ignore_index=config.taxonomy.ignore_index,
+        )
+        subset_evaluation_summary = {
+            "report": str(run / "diagnostics" / "train_subset" / "summary.json"),
+            "mean_cross_entropy_loss": diagnostic_report["mean_cross_entropy_loss"],
+            "overall_pixel_accuracy": diagnostic_report["global"][
+                "overall_pixel_accuracy"
+            ],
+            "known_class_miou": diagnostic_report["global"]["known_class_miou"],
+        }
+        if tensorboard is not None:
+            if subset_evaluation_summary["overall_pixel_accuracy"] is not None:
+                tensorboard.add_scalar(
+                    "diagnostic/train_subset_pixel_accuracy",
+                    subset_evaluation_summary["overall_pixel_accuracy"],
+                    global_step,
+                )
+            if subset_evaluation_summary["known_class_miou"] is not None:
+                tensorboard.add_scalar(
+                    "diagnostic/train_subset_known_class_miou",
+                    subset_evaluation_summary["known_class_miou"],
+                    global_step,
+                )
     summary = {
         "run": str(run),
+        "requested_run_name": config.training.run_name,
         "epochs_completed": epochs_completed,
         "global_steps": global_step,
         "best_primary_metric": best_metric,
@@ -524,16 +634,43 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         "amp": amp_enabled,
         "class_weighting": config.training.class_weighting,
         "train_samples": len(dataset),
+        "train_scenes": len({record.scene_id for record in dataset.records}),
+        "training_sample_selection": config.training.sample_selection,
+        "training_sample_ids": selected_sample_ids if limited_training else None,
+        "training_validation_scope": train_validation["validation_scope"],
+        "train_subset_evaluation": subset_evaluation_summary,
         "batch_size": config.training.batch_size,
         "batches_per_epoch": len(loader),
         "optimizer_steps_per_epoch": steps_per_epoch,
         "planned_optimizer_steps": total_steps,
         "warmup_steps": warmup_steps,
         "parameter_counts": {"trainable": trainable, "total": total},
+        "optimizer_groups": optimizer_groups,
     }
     if tensorboard is not None:
         tensorboard.flush()
         tensorboard.close()
-    save_training_plots(metrics_path, run / "plots")
+    plot_paths = save_training_plots(metrics_path, run / "plots")
+    metrics_summary = summarize_training_metrics(metrics_path)
+    metrics_summary["plots"] = [str(path.relative_to(run)) for path in plot_paths]
+    metrics_summary["tensorboard"] = (
+        "tensorboard" if tensorboard is not None else None
+    )
+    metrics_summary["train_subset_evaluation"] = subset_evaluation_summary
+    development_metrics = metrics_summary.get("development")
+    if development_metrics is not None:
+        best_development = development_metrics.get("best_known_class_miou")
+        if best_development is not None:
+            epoch = int(best_development["epoch"])
+            development_metrics["best_evaluation_report"] = str(
+                Path(f"evaluation-epoch-{epoch:03d}") / "summary.json"
+            )
+            development_metrics["best_evaluation_plots"] = str(
+                Path(f"evaluation-epoch-{epoch:03d}") / "plots"
+            )
+    metrics_summary_path = run / "metrics_summary.json"
+    atomic_write_json(metrics_summary_path, metrics_summary)
+    summary["metrics_summary"] = str(metrics_summary_path)
+    summary["metric_plots"] = metrics_summary["plots"]
     atomic_write_json(run / "summary.json", summary)
     return summary

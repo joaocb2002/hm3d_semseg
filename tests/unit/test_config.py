@@ -53,6 +53,12 @@ def test_weighting_and_warmup_are_validated() -> None:
         load_config(cli_overrides={"training": {"device": "gpu"}})
     with pytest.raises(ConfigurationError, match=r"training\.max_train_samples"):
         load_config(cli_overrides={"training": {"max_train_samples": 0}})
+    with pytest.raises(ConfigurationError, match=r"training\.sample_selection"):
+        load_config(cli_overrides={"training": {"sample_selection": "random"}})
+    with pytest.raises(ConfigurationError, match=r"training\.evaluate_train_subset"):
+        load_config(cli_overrides={"training": {"evaluate_train_subset": True}})
+    with pytest.raises(ConfigurationError, match=r"training\.run_name"):
+        load_config(cli_overrides={"training": {"run_name": "../outside"}})
 
 
 def test_yaw_offset_per_position_is_validated() -> None:

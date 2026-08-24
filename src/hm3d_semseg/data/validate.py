@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 import numpy as np
 import yaml
@@ -23,8 +23,9 @@ def validate_dataset(
     root: Path,
     raise_on_error: bool = True,
     artifact_output: Optional[Path] = None,
+    sample_ids: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """Validate schema, files, shapes, targets, leakage, and class census."""
+    """Validate global contracts and either all files or an explicit sample subset."""
     root = root.resolve()
     errors: List[str] = []
     dataset_path = root / "dataset.yaml"
@@ -51,23 +52,46 @@ def validate_dataset(
             errors.append(f"invalid camera_profile.yaml: {error}")
     if not manifest_path.is_file():
         errors.append("missing manifest.jsonl")
-        records = []
+        manifest_records = []
     else:
         try:
-            records = load_manifest(manifest_path)
+            manifest_records = load_manifest(manifest_path)
         except ValueError as error:
             errors.append(str(error))
-            records = []
-    ids = [record.sample_id for record in records]
+            manifest_records = []
+    ids = [record.sample_id for record in manifest_records]
     duplicates = sorted(key for key, count in Counter(ids).items() if count > 1)
     if duplicates:
         errors.append(f"duplicate sample IDs: {', '.join(duplicates[:10])}")
     scene_splits: Dict[str, Set[str]] = defaultdict(set)
+    for record in manifest_records:
+        scene_splits[record.scene_id].add(record.split)
+    if sample_ids is None:
+        records = manifest_records
+        validation_scope = "full"
+    else:
+        requested = list(sample_ids)
+        if len(requested) != len(set(requested)):
+            errors.append("selected sample IDs contain duplicates")
+        records_by_id = {record.sample_id: record for record in manifest_records}
+        missing_selected = [
+            sample_id for sample_id in requested if sample_id not in records_by_id
+        ]
+        if missing_selected:
+            errors.append(
+                "selected sample IDs missing from manifest: "
+                + ", ".join(missing_selected[:10])
+            )
+        records = [
+            records_by_id[sample_id]
+            for sample_id in requested
+            if sample_id in records_by_id
+        ]
+        validation_scope = "selected"
     class_counts = np.zeros(41, dtype=np.int64)
     ignored = 0
     total = 0
     for record in records:
-        scene_splits[record.scene_id].add(record.split)
         paths = [root / record.rgb, root / record.mask, root / record.metadata]
         if record.depth:
             paths.append(root / record.depth)
@@ -129,15 +153,23 @@ def validate_dataset(
     leaked = sorted(scene for scene, splits in scene_splits.items() if len(splits) > 1)
     if leaked:
         errors.append(f"scene split leakage: {', '.join(leaked[:10])}")
-    manifest_hash = canonical_hash([record.to_dict() for record in records])
+    manifest_hash = canonical_hash([record.to_dict() for record in manifest_records])
     if dataset.get("manifest_hash") not in (None, manifest_hash):
         errors.append("dataset.yaml manifest_hash does not match the current manifest")
     report = {
         "dataset": str(root),
         "valid": not errors,
         "errors": errors,
+        "validation_scope": validation_scope,
         "samples": len(records),
-        "scenes": len(scene_splits),
+        "scenes": len({record.scene_id for record in records}),
+        "manifest_samples": len(manifest_records),
+        "manifest_scenes": len(scene_splits),
+        "selected_sample_ids": (
+            [record.sample_id for record in records]
+            if validation_scope == "selected"
+            else None
+        ),
         "class_counts": class_counts.tolist(),
         "unknown_pixels": int(class_counts[0]),
         "ignored_pixels": ignored,

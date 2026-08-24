@@ -100,6 +100,8 @@ class TrainingConfig:
     train_dataset: Optional[Path] = None
     development_dataset: Optional[Path] = None
     max_train_samples: Optional[int] = None
+    sample_selection: str = "manifest_order"
+    evaluate_train_subset: bool = False
     run_name: str = "segformer_b2_baseline"
     epochs: int = 20
     batch_size: int = 2
