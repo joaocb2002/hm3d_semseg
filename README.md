@@ -123,6 +123,7 @@ Follow the numbered guide in order:
 4. [HM3D and taxonomy](docs/04_hm3d_and_taxonomy.md)
 5. [Sampling and generation](docs/05_sampling_and_generation.md)
 6. [Dataset format](docs/06_dataset_format.md)
+6a. [Workstation-to-server handoff and return](docs/server_handoff.md)
 7. [Training](docs/07_training.md)
 8. [Evaluation and calibration](docs/08_evaluation_and_calibration.md)
 9. [Inference and ObjectNav integration](docs/09_inference_and_objectnav_integration.md)
@@ -132,13 +133,25 @@ Follow the numbered guide in order:
 
 Reference: [losses, metrics, and run artifacts](docs/losses_and_metrics.md).
 
+The machine boundary is deliberate: resolve the ObjectNav camera and render
+licensed HM3D data in the Habitat workstation environment; transfer complete,
+validated offline dataset directories to a host-matched single-GPU training
+environment; then return the complete final run and calibrated checkpoint for
+local verification and ObjectNav deployment. Never transfer an uncommitted
+working tree or deploy a loose `model.safetensors` file. The handoff guide lists
+the exact portable artifacts, integrity checks, server acceptance test,
+scheduler workflow, final-protocol boundary, and return procedure.
+
 The complete execution sequence is: install; configure local paths; run
 `doctor`; freeze the camera; run unit tests; inspect minival; run Habitat tests;
 audit minival; generate and validate the pilot; explicitly download the model;
 run smoke and tiny-overfit checks; audit train/val; freeze the internal split;
-generate fit/development data; train and evaluate development; freeze the
-recipe; train on all 145 scenes; evaluate the fixed 36-scene official validation
-set; calibrate on disjoint scenes; infer; integrate through the Python API.
+generate and validate fit/development data; freeze the source commit; transfer
+complete datasets; recreate and accept the server environment; compare recipes
+on development; freeze the recipe; train on all 145 scenes; evaluate the fixed
+36-scene official validation set; calibrate on disjoint scenes; return and
+checksum the complete run; verify inference locally; integrate through the
+Python API; benchmark the actual ObjectNav host.
 
 ## Known limitations
 

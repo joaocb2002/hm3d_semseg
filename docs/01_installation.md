@@ -84,6 +84,22 @@ validation is intended only when the installation host is not the execution
 host. On a GPU execution host, always use `auto`. CPU training is valid for
 small checks but not practical for the full baseline.
 
+## Downstream inference environment
+
+After a trained checkpoint returns from the server, install the minimal
+inference extra in the ObjectNav/Habitat environment:
+
+```bash
+conda activate habitat
+cd ~/projects/hm3d-semseg
+python -m pip install -e ".[inference]"
+```
+
+This adds the checkpoint-loading dependencies but does not install or replace
+PyTorch. If pip proposes changing Habitat, Habitat-Sim, CUDA, or PyTorch, stop
+and resolve the environment before integration. The training extra remains
+isolated in `hm3d-semseg-train`.
+
 Profile versions and indexes follow the official
 [PyTorch installation matrix](https://pytorch.org/get-started/previous-versions/);
 the Pascal boundary follows NVIDIA's

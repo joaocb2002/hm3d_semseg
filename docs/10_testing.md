@@ -46,6 +46,8 @@ ruff check .
 ```
 
 Skipped proprietary/GPU tests are not passes; record skips and blockers in
-handoffs.
+handoffs. On a training-only server, unit tests plus a transferred-dataset
+validation and deterministic tiny-overfit run are the acceptance sequence;
+Habitat and renderer smoke tests remain on the licensed rendering workstation.
 
 Next: [troubleshooting](11_troubleshooting.md).

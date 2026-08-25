@@ -1,5 +1,11 @@
 # 8. Evaluation and calibration
 
+These commands normally run on the GPU server that produced the checkpoint.
+Official validation remains untouched until the development recipe and duration
+are frozen. After calibration and benchmarking, return the complete final run
+and calibrated checkpoint using the
+[workstation-to-server handoff guide](server_handoff.md).
+
 Evaluate a fixed scene-disjoint manifest:
 
 ```bash

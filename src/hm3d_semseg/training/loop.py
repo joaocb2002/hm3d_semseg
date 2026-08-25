@@ -134,6 +134,17 @@ def _save_qualitative(
     Image.fromarray(panel, mode="RGB").save(output)
 
 
+def _prepare_run_directories(run: Path) -> None:
+    """Create the stable training-artifact directory hierarchy."""
+    for directory in (
+        "checkpoints",
+        "tensorboard",
+        "plots",
+        "diagnostics/training_progress/qualitative",
+    ):
+        (run / directory).mkdir(parents=True, exist_ok=True)
+
+
 def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any]:
     """Train and resume a baseline while saving complete run provenance."""
     import torch
@@ -226,13 +237,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             f"Run '{config.training.run_name}' already exists; writing this fresh run "
             f"to '{run.name}'."
         )
-    for directory in (
-        "checkpoints",
-        "tensorboard",
-        "plots",
-        "qualitative",
-    ):
-        (run / directory).mkdir(exist_ok=True)
+    _prepare_run_directories(run)
     save_resolved_config(config, run / "resolved_config.yaml")
     provenance = collect_provenance(config.paths.habitat_lab_root)
     provenance.update(
@@ -495,7 +500,11 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             model,
             qualitative_dataset,
             config.model,
-            run / "qualitative" / f"epoch_{epoch:03d}.png",
+            run
+            / "diagnostics"
+            / "training_progress"
+            / "qualitative"
+            / f"epoch_{epoch:03d}.png",
             device,
         )
         progress.phase(epoch=epoch, name="checkpoint")

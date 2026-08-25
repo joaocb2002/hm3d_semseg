@@ -22,20 +22,20 @@ pixel without distinguishing object instances.
 
 ## Prediction contract
 
-For pixel (p), SegFormer produces 41 logits (z_{p,c}): learnable class 0
+For pixel `p`, SegFormer produces 41 logits `z[p,c]`: learnable class 0
 `unknown` and MPCAT40 classes 1--40. Logits are bilinearly upsampled to the
-native mask shape. For a positive temperature (T), probabilities are
+native mask shape. For a positive temperature `T`, probabilities are:
 
-\[
-p_{p,c}=\frac{\exp(z_{p,c}/T)}{\sum_{k=0}^{40}\exp(z_{p,k}/T)}.
-\]
+```text
+p[p,c] = exp(z[p,c] / T) / sum(exp(z[p,k] / T), k = 0..40)
+```
 
-The hard label and confidence are
+The hard label and confidence are:
 
-\[
-\hat y_p=\arg\max_c p_{p,c}, \qquad
-q_p=\max_c p_{p,c}.
-\]
+```text
+predicted_label[p] = argmax(p[p,c], c = 0..40)
+confidence[p]      = max(p[p,c], c = 0..40)
+```
 
 Softmax preserves ordering, so `argmax(softmax(logits))` and `argmax(logits)`
 give the same label. Temperature changes confidence but not the label.
@@ -47,34 +47,33 @@ deliberately excludes it.
 
 ## Cross-entropy loss
 
-For a valid pixel with target (y_p), categorical cross-entropy is
+For a valid pixel with target `y[p]`, categorical cross-entropy is:
 
-\[
-\ell_p=-\log p_{p,y_p}
-=-z_{p,y_p}+\log\sum_{c=0}^{40}\exp z_{p,c}.
-\]
+```text
+pixel_loss[p] = -log(p[p, y[p]])
+              = -z[p, y[p]] + log(sum(exp(z[p,c]), c = 0..40))
+```
 
 The implementation passes raw logits to PyTorch so log-softmax is evaluated
 stably. It does not apply softmax first. A prediction assigning 0.9 probability
 to the correct class has loss 0.105; probabilities 0.5, 0.1, and 0.01 produce
 losses 0.693, 2.303, and 4.605. Confident mistakes are therefore expensive.
 
-A uniform 41-class predictor has cross-entropy
+A uniform 41-class predictor has cross-entropy:
 
-\[
-\log 41\approx3.714.
-\]
+```text
+log(41) ~= 3.714
+```
 
 For unweighted evaluation, `exp(-mean_cross_entropy_loss)` is the geometric
 mean probability assigned to the correct class. It is an aggregate, not the
 probability of every pixel.
 
-The gradient for class (c) is
+The gradient for class `c` is:
 
-\[
-\frac{\partial\ell_p}{\partial z_{p,c}}
-=p_{p,c}-\mathbf{1}[c=y_p].
-\]
+```text
+d(pixel_loss[p]) / d(z[p,c]) = p[p,c] - 1[c == y[p]]
+```
 
 It pushes the correct logit upward and all incorrect logits downward. This
 smooth, decomposable gradient is why cross-entropy is optimized instead of hard
@@ -96,19 +95,19 @@ differ because stochastic model components are disabled for evaluation.
 
 ## Confusion matrix
 
-Hard segmentation metrics derive from a 41 by 41 matrix
+Hard segmentation metrics derive from a 41 by 41 matrix:
 
-\[
-C_{ij}=\#\{p:y_p=i,\hat y_p=j\}.
-\]
+```text
+C[i,j] = number of pixels where y[p] == i and predicted_label[p] == j
+```
 
-Rows are ground truth and columns are predictions. For class (c):
+Rows are ground truth and columns are predictions. For class `c`:
 
-\[
-TP_c=C_{cc},\quad
-FN_c=\sum_jC_{cj}-TP_c,\quad
-FP_c=\sum_iC_{ic}-TP_c.
-\]
+```text
+TP[c] = C[c,c]
+FN[c] = sum(C[c,j], j = 0..40) - TP[c]
+FP[c] = sum(C[i,c], i = 0..40) - TP[c]
+```
 
 The row-normalized matrix answers, "Given the true class, where did its pixels
 go?" Off-diagonal cells reveal systematic confusions such as chair to sofa.
@@ -117,13 +116,13 @@ go?" Off-diagonal cells reveal systematic confusions such as chair to sofa.
 
 | Metric | Computation | Intuition and use |
 |---|---|---|
-| Per-class IoU | (TP_c/(TP_c+FP_c+FN_c)) | Region overlap while penalizing both extra and missed pixels. This is the most important per-class measure. |
-| Precision | (TP_c/(TP_c+FP_c)) | Of pixels predicted as class (c), how many were correct? Low precision indicates overprediction. |
-| Recall | (TP_c/(TP_c+FN_c)) | Of true class-(c) pixels, how many were recovered? Low recall indicates missed regions. |
-| F1/Dice | (2TP_c/(2TP_c+FP_c+FN_c)) | Harmonic balance of precision and recall. For the same mask, `F1 = 2 IoU / (1 + IoU)`. |
-| Overall pixel accuracy | \(\sum_cTP_c/\sum_{ij}C_{ij}\) | Fraction of all valid pixels correct. Useful but easily dominated by large surfaces. |
+| Per-class IoU | `TP[c] / (TP[c] + FP[c] + FN[c])` | Region overlap while penalizing both extra and missed pixels. This is the most important per-class measure. |
+| Precision | `TP[c] / (TP[c] + FP[c])` | Of pixels predicted as class `c`, how many were correct? Low precision indicates overprediction. |
+| Recall | `TP[c] / (TP[c] + FN[c])` | Of true class-`c` pixels, how many were recovered? Low recall indicates missed regions. |
+| F1/Dice | `2 TP[c] / (2 TP[c] + FP[c] + FN[c])` | Harmonic balance of precision and recall. For the same mask, `F1 = 2 IoU / (1 + IoU)`. |
+| Overall pixel accuracy | `sum(TP[c]) / sum(C[i,j])` | Fraction of all valid pixels correct. Useful but easily dominated by large surfaces. |
 | Mean class recall | Mean recall over ground-truth-present classes 0--40 | Gives every present class equal weight; includes `unknown` if present. |
-| Frequency-weighted IoU | \(\sum_c (support_c/N) IoU_c\) | Weights classes by their pixel prevalence. More representative of an average pixel, but can hide rare-class failure. |
+| Frequency-weighted IoU | `sum((support[c] / N) * IoU[c])` | Weights classes by their pixel prevalence. More representative of an average pixel, but can hide rare-class failure. |
 | Known-class mIoU | Mean IoU over ground-truth-present classes 1--40 | Principal model-selection and reporting metric. Every included known class has equal weight; `unknown` is excluded. |
 | `miou_41` | Mean IoU over ground-truth-present classes 0--40 | Includes `unknown`. Despite the name, absent classes are excluded rather than filled with zero. |
 | ObjectNav-six mIoU | Mean IoU over present chair, sofa/couch, plant, bed, toilet, and TV classes | Task-specific view of the six ObjectNav goal categories. |
@@ -156,10 +155,10 @@ mIoU reveals whether performance is stable across environments.
 
 | Metric | Computation | Interpretation |
 |---|---|---|
-| Negative log-likelihood | \(-N^{-1}\sum_p\log p_{p,y_p}\) | Same mathematical quantity as unweighted evaluation cross-entropy at temperature 1. Lower is better and confident errors are penalized strongly. |
-| Multiclass Brier | \(N^{-1}\sum_p\sum_c(p_{p,c}-1[c=y_p])^2\) | Squared probability error. Perfect is 0; a confidently wrong categorical prediction approaches 2. |
-| ECE | \(\sum_b(|b|/N)|accuracy_b-confidence_b|\) | Fifteen-bin approximation of whether stated confidence matches empirical correctness. Lower is better and the value depends on binning. |
-| Entropy | \(-\sum_cp_{p,c}\log p_{p,c}\) | Per-pixel uncertainty. Zero is fully concentrated; a uniform 41-way prediction has entropy `log(41)`. Correct predictions should generally have lower entropy than errors. |
+| Negative log-likelihood | `-mean(log(p[p, y[p]]))` | Same mathematical quantity as unweighted evaluation cross-entropy at temperature 1. Lower is better and confident errors are penalized strongly. |
+| Multiclass Brier | `mean(sum((p[p,c] - 1[c == y[p]])^2))` | Squared probability error. Perfect is 0; a confidently wrong categorical prediction approaches 2. |
+| ECE | `sum((count[b] / N) * abs(accuracy[b] - confidence[b]))` | Fifteen-bin approximation of whether stated confidence matches empirical correctness. Lower is better and the value depends on binning. |
+| Entropy | `-sum(p[p,c] * log(p[p,c]))` | Per-pixel uncertainty. Zero is fully concentrated; a uniform 41-way prediction has entropy `log(41)`. Correct predictions should generally have lower entropy than errors. |
 | Risk-coverage | `coverage = retained/N`; `risk = 1 - retained accuracy` | Tests selective prediction: discarding low-confidence pixels should reduce risk. |
 
 Temperature calibration must be fit on dedicated calibration-fit scenes and
@@ -197,7 +196,7 @@ the run directory printed by `hm3d-semseg train`:
 | `tensorboard/events.out.tfevents.*` | Interactive step/epoch scalars with smoothing, exact values, and wall time. |
 | `parameter_counts.json` | Trainable/total scalar parameters and optimizer-group sizes, base rates, and weight decay. |
 | `checkpoints/{best,last}/checkpoint.json` | Epoch, optimizer step, selection metric, model identity, camera/resize contract, and early-stopping state. |
-| `qualitative/epoch_EEE.png` | Fixed RGB, target overlay, and prediction overlay for visual training progression. |
+| `diagnostics/training_progress/qualitative/epoch_EEE.png` | Fixed RGB, target overlay, and prediction overlay for visual training progression. |
 
 When a development dataset is configured, the run additionally contains:
 

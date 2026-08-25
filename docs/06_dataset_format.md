@@ -39,5 +39,9 @@ photometric jitter affects RGB only. Class zero remains zero.
 Scene lists—not rendered frames—define fit/development/calibration partitions.
 Never randomly split the manifest.
 
-Next: [training](07_training.md).
+Before training on another machine, follow the
+[workstation-to-server handoff and return guide](server_handoff.md). It explains
+which complete dataset directories move, how to verify them, how to recreate the
+host-specific environment, and which final artifacts return.
 
+Next: [training](07_training.md).

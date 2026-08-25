@@ -1,7 +1,10 @@
 # 7. Training
 
 Leave the rendering environment and run every command in this guide from the
-host-matched training environment:
+host-matched training environment. When training on a dedicated GPU server,
+complete the [workstation-to-server handoff](server_handoff.md) first; the
+server needs the repository and complete offline datasets, not Habitat or HM3D
+source assets.
 
 ```bash
 conda activate hm3d-semseg-train
@@ -47,18 +50,20 @@ optimizer-step progress bar reports completed/remaining steps, elapsed time,
 ETA, current epoch, loss, learning rate, and throughput. It is enabled by
 default; add `--no-progress` for quiet batch logs.
 
-The experiment config enforces `training.max_train_samples: 4` and
-`training.sample_selection: scene_diverse`. A seeded selection takes one view
-from each of four different scenes. The IDs are recorded in resolved provenance
-and the summary, so repeated runs use the same four samples. Limited runs fully
-decode and validate only their selected files while still checking the complete
-manifest, schema, hashes, duplicate IDs, and scene-split contract. Runs without
+`training.max_train_samples` controls the diagnostic subset and
+`training.sample_selection: scene_diverse` takes at most one view from each
+scene before reusing a scene. Verify the configured count before launching; a
+very small subset tests memorization, while a larger subset is a slower training
+sanity check. The seeded IDs are recorded in resolved provenance and the
+summary, so repeated runs use the same samples. Limited runs fully decode and
+validate only their selected files while still checking the complete manifest,
+schema, hashes, duplicate IDs, and scene-split contract. Runs without
 `max_train_samples` retain complete file validation.
 
 After training, `training.evaluate_train_subset: true` evaluates the best
-checkpoint on all four selected samples. Review
+checkpoint on every selected sample. Review
 `diagnostics/train_subset/summary.json`, its per-sample accuracy and per-class
-IoU plots, row-normalized confusion matrix, and four labeled qualitative panels.
+IoU plots, row-normalized confusion matrix, and labeled qualitative panels.
 These are memorization measurements on training images, not generalization
 results. Loss must fall clearly and predictions must approach memorization.
 There is no universal numeric threshold, but failure to achieve roughly
@@ -118,16 +123,20 @@ this with nonzero class-aware oversampling.
 
 Runs contain resolved config, provenance, parameter counts, raw
 `metrics.jsonl`, compact `metrics_summary.json`, TensorBoard events, checkpoints,
-plots/qualitative directories, evaluations, and `summary.json`. Static plots
+plots, diagnostics, evaluations, and `summary.json`. Static plots
 include loss/learning-rate and optimization diagnostics; development runs also
-plot development loss and known-class mIoU. A fresh run never mixes with an
-existing directory: if the requested name exists, the new run is allocated
-`<name>-002`, then `<name>-003`, and so on. Resume by setting
+plot development loss and known-class mIoU. Per-epoch visual progression is
+stored under `diagnostics/training_progress/qualitative`; final selected-subset
+diagnostics remain under `diagnostics/train_subset`. A fresh run never mixes
+with an existing directory: if the requested name exists, the new run is
+allocated `<name>-002`, then `<name>-003`, and so on. Resume by setting
 `training.resume` to a prior `checkpoints/last`; only an explicit resume reuses
 the requested run directory and appends its history.
 
-After development, freeze recipe and duration. Generate all 145 train scenes,
-set development dataset null, choose a new final run name, and train without
-tuning on official validation.
+After development, freeze recipe and duration. Use a distinct validated
+`train-all-v1` dataset containing all 145 training scenes; never extend the
+130-scene fit dataset in place. Set the development dataset to null, choose a
+new final run name, and train without tuning on official validation. The
+[handoff guide](server_handoff.md) gives the exact server and return sequence.
 
 Next: [evaluation and calibration](08_evaluation_and_calibration.md).

@@ -1,5 +1,19 @@
 # 9. Inference and ObjectNav integration
 
+Return and checksum the complete final run as described in the
+[server handoff guide](server_handoff.md). Use the calibrated checkpoint
+directory as the deployment unit; `model.safetensors` alone omits the model
+configuration, project metadata, camera contract, and fitted temperature.
+
+Install only the inference dependencies into the downstream environment; the
+host-aware training installer and training-only plotting/TensorBoard packages
+are not required:
+
+```bash
+cd /absolute/path/to/hm3d-semseg
+python -m pip install -e ".[inference]"
+```
+
 Single-image inference preserves the input aspect ratio:
 
 ```bash
@@ -40,6 +54,10 @@ segmenter.assert_camera(runtime)
 
 Do not import `object-nav-v2` into this repository. In the downstream project,
 import the installed `hm3d_semseg` package and pass RGB observations directly.
+Start with the repository commit recorded in the returned run's provenance;
+upgrading inference code later requires a regression test against the frozen
+checkpoint. Preserve the complete research run separately even if deployment
+omits the resume-only `training_state.pt` file.
 Use the same RGB channel order, ImageNet mean/std, no label reduction, no square
 warp, and the checkpoint's temperature. Output class `sofa` corresponds to
 ObjectNav couch, `plant` to potted plant, and `tv_monitor` to TV.
@@ -48,4 +66,3 @@ Future rollout-manifest evaluation should remain secondary: policy behavior
 changes the observation distribution.
 
 Next: [testing](10_testing.md).
-

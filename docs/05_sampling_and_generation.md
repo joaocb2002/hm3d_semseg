@@ -187,6 +187,9 @@ views for the current scene and counts accepted, rejected, and already-existing
 samples. The stored count includes resumed manifest records. Use `--no-progress`
 for non-interactive batch logs; the final JSON summary remains on stdout.
 
-EGL/driver failures are actionable blockers, not silently skipped frames.
+EGL/driver failures are actionable blockers, not silently skipped frames. The
+rendered directory—not the HM3D source tree—is the portable handoff to training.
+Keep every root-level manifest, configuration, provenance, and camera file with
+its scene directories.
 
 Next: [dataset format](06_dataset_format.md).
