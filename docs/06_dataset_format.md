@@ -43,6 +43,12 @@ photometric jitter affects RGB only. Class zero remains zero.
 Scene lists—not rendered frames—define fit/development/calibration partitions.
 Never randomly split the manifest.
 
+The [dataset lifecycle table](05_sampling_and_generation.md#dataset-lifecycle-why-six-roots-exist)
+is the source of truth for which root is allowed at each later stage. In
+particular, the tiny-overfit diagnostic uses four samples from `train-v1`,
+recipe selection uses `development-v1`, and neither is a substitute for the
+fresh 145-scene `train-all-v1` final-refit root.
+
 Next: [prepare the workstation-to-server handoff](06a_server_handoff.md). It
 explains which complete dataset directories move, how to verify them, how to
 recreate the host-specific environment, and which final artifacts return.

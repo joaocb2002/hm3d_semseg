@@ -71,12 +71,14 @@ used, the server must check out the recorded commit.
 
 ## 2. Decide which offline datasets to transfer
 
-Recipe development requires:
+The authoritative purpose and chronology of every root are in the
+[dataset lifecycle table](05_sampling_and_generation.md#dataset-lifecycle-why-six-roots-exist).
+At this point Stage A is complete and validated:
 
 - `train-v1`: the 130-scene fit dataset generated from `fit.txt`;
 - `development-v1`: the disjoint 15-scene development dataset.
 
-Final training and evaluation additionally require:
+Complete Stage B before the recommended single transfer:
 
 - `train-all-v1`: all 145 official training scenes, generated only after the
   130/15 protocol has been frozen;
@@ -89,6 +91,13 @@ workstation before the first transfer. This is data preparation, not model
 evaluation. Possessing `official-val-v1` on the server does not authorize using
 its results for recipe selection: keep it embargoed until the
 baseline/balanced recipe and duration are frozen.
+
+The boundaries are strict: candidate-model gradients come only from
+`train-v1`; candidate selection comes only from `development-v1`; final-model
+gradients come only from `train-all-v1`; official metrics come from
+`official-val-v1`; and temperature fitting/evaluation use their respective
+disjoint calibration roots. The server workflow in sections 7 and 8 follows
+these roles without resplitting any manifest.
 
 To create a distinct all-training-scenes dataset, never extend or overwrite the
 130-scene `train-v1` directory:
