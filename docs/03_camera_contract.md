@@ -1,5 +1,9 @@
 # 3. Camera contract
 
+**Execution location: workstation.** The resolved camera profile becomes part
+of every portable dataset and checkpoint, so the server does not need to
+re-compose the ObjectNav Habitat configuration.
+
 ## Environment
 
 Run this entire step in the render environment, not the training environment:

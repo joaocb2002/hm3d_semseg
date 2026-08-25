@@ -30,6 +30,24 @@ and `rendering/` generate aligned observations; `data/` owns the immutable
 manifest contract; `models/`, `training/`, `evaluation/`, `calibration/`, and
 `inference/` implement the baseline. The CLI is always `hm3d-semseg`.
 
+## Physical workflow and artifact ownership
+
+```text
+WORKSTATION                          GPU SERVER
+Git working tree --commit/push----> exact Git clone
+validated datasets -------rsync----> server data root
+                                     train/evaluate/calibrate
+local source remains unchanged <---- complete run via rsync
+ObjectNav loads calibrated checkpoint from the returned run
+```
+
+Git and model artifacts are separate channels. Git tracks source, checked
+configuration, scene lists, tests, and documentation. Generated datasets,
+TensorBoard events, run reports, and checkpoints are ignored by Git. Training
+normally does not modify the server clone, so the workstation does not pull a
+model with `git pull`: it copies the complete final run back into its external
+`hm3d-semseg-data/runs` tree and loads the calibrated checkpoint from there.
+
 ## Local implementation findings
 
 The read-only implementation audit found:
@@ -123,7 +141,7 @@ Follow the numbered guide in order:
 4. [HM3D and taxonomy](docs/04_hm3d_and_taxonomy.md)
 5. [Sampling and generation](docs/05_sampling_and_generation.md)
 6. [Dataset format](docs/06_dataset_format.md)
-6a. [Workstation-to-server handoff and return](docs/server_handoff.md)
+6a. [Workstation-to-server handoff and return](docs/06a_server_handoff.md)
 7. [Training](docs/07_training.md)
 8. [Evaluation and calibration](docs/08_evaluation_and_calibration.md)
 9. [Inference and ObjectNav integration](docs/09_inference_and_objectnav_integration.md)
@@ -141,6 +159,14 @@ local verification and ObjectNav deployment. Never transfer an uncommitted
 working tree or deploy a loose `model.safetensors` file. The handoff guide lists
 the exact portable artifacts, integrity checks, server acceptance test,
 scheduler workflow, final-protocol boundary, and return procedure.
+
+At the end, the workstation owns two linked but separate records:
+
+```text
+~/projects/hm3d-semseg/                         # exact Git source revision
+~/hm3d-semseg-data/runs/server/<final-run>/     # returned research artifacts
+└── checkpoints/calibrated/                     # ObjectNav deployment input
+```
 
 The complete execution sequence is: install; configure local paths; run
 `doctor`; freeze the camera; run unit tests; inspect minival; run Habitat tests;

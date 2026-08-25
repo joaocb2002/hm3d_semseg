@@ -1,4 +1,4 @@
-# Workstation-to-server handoff and return
+# 6a. Workstation-to-server handoff and return
 
 This guide is the operational bridge between offline HM3D rendering, GPU
 training, and ObjectNav deployment. The physical machine may change; the
@@ -19,6 +19,31 @@ navmeshes, semantic descriptors, or `object-nav-v2`. It needs the repository,
 offline datasets, a model snapshot, and the training environment. Do not copy
 licensed HM3D source assets unless the server is an approved storage and compute
 location under the applicable licenses.
+
+## Two transfer channels, not one repository round trip
+
+Keep source control and generated artifacts separate throughout the workflow:
+
+| Channel | Workstation to server | Server to workstation |
+|---|---|---|
+| Git | Commit/push source, checked YAML, splits, tests, and docs; clone the exact SHA on the server | Usually nothing: training should not edit source. Pull only intentional server-side commits that were reviewed and pushed. |
+| Artifact transfer | Copy the six complete offline dataset directories; optionally copy the pinned model cache | Copy complete development/final runs, evaluation reports, scheduler logs, and the calibrated checkpoint using `rsync` or managed storage. |
+
+The trained model is never committed to this repository. `git pull` cannot
+return it because `runs/`, checkpoints, `*.safetensors`, and `*.pt` are ignored.
+The normal final workstation state is:
+
+```text
+~/projects/hm3d-semseg/                         # source at recorded Git SHA
+~/hm3d-semseg-data/generated/                   # original rendered datasets
+~/hm3d-semseg-data/runs/server/<final-run>/     # copied back from server
+└── checkpoints/calibrated/                     # loaded by ObjectNav
+```
+
+Treat the server clone as read-only during scientific runs. If a source or
+experiment change becomes necessary, make it deliberately, commit it, put both
+machines on the new SHA, and restart or label the affected experiment. Never
+copy checkpoint files into the Git working tree.
 
 ## 1. Freeze the workstation state
 
@@ -60,9 +85,10 @@ Final training and evaluation additionally require:
   official validation used for temperature fitting and probability evaluation.
 
 The smoothest workflow is to render and validate all of these on the
-workstation before the first transfer. Possessing `official-val-v1` on the
-server does not authorize using its results for recipe selection: keep it
-embargoed until the baseline/balanced recipe and duration are frozen.
+workstation before the first transfer. This is data preparation, not model
+evaluation. Possessing `official-val-v1` on the server does not authorize using
+its results for recipe selection: keep it embargoed until the
+baseline/balanced recipe and duration are frozen.
 
 To create a distinct all-training-scenes dataset, never extend or overwrite the
 130-scene `train-v1` directory:
@@ -81,10 +107,56 @@ hm3d-semseg validate-dataset \
   --dataset /absolute/generated/root/train-all-v1
 ```
 
-Generate official validation and its calibration subsets with the commands in
-[evaluation and calibration](08_evaluation_and_calibration.md). It is also
-valid to transfer only fit/development initially and transfer the final datasets
-later; that saves temporary storage but introduces a second handoff.
+The calibration scene lists are already frozen and checked in as
+`configs/data/splits/calibration_fit.txt` and
+`configs/data/splits/calibration_evaluation.txt`; do not regenerate them during
+an ordinary run. Still in the local `habitat` environment, render official
+validation and the two calibration roots:
+
+```bash
+hm3d-semseg generate-dataset \
+  --config configs/data/validation.yaml \
+  --local-config configs/local.yaml \
+  --official-split val
+
+hm3d-semseg generate-dataset \
+  --config configs/data/validation.yaml \
+  --local-config configs/local.yaml \
+  --official-split val \
+  --dataset-name calibration-fit-v1 \
+  --split-list configs/data/splits/calibration_fit.txt
+
+hm3d-semseg generate-dataset \
+  --config configs/data/validation.yaml \
+  --local-config configs/local.yaml \
+  --official-split val \
+  --dataset-name calibration-evaluation-v1 \
+  --split-list configs/data/splits/calibration_evaluation.txt
+```
+
+Run each command with `--dry-run` first when checking storage plans. Then
+validate every newly rendered root:
+
+```bash
+hm3d-semseg validate-dataset \
+  --dataset /absolute/generated/root/official-val-v1
+hm3d-semseg validate-dataset \
+  --dataset /absolute/generated/root/calibration-fit-v1
+hm3d-semseg validate-dataset \
+  --dataset /absolute/generated/root/calibration-evaluation-v1
+```
+
+`official-val-v1` and the two calibration roots intentionally contain two
+rendered copies of the same 36 validation scenes partitioned in different
+ways. The evaluator consumes one self-contained dataset root at a time: the
+full root provides official hard-segmentation metrics, while the disjoint roots
+prevent temperature-fit leakage into probability evaluation.
+
+It is also valid to transfer only fit/development initially and transfer the
+final datasets later; that saves temporary storage but introduces a second
+handoff. Temperature fitting is not performed now. Only the calibration images
+and masks are prepared now; `hm3d-semseg calibrate` runs on the server after the
+final model is frozen.
 
 Every directory is self-contained. Transfer the whole directory, including
 `dataset.yaml`, `resolved_config.yaml`, `provenance.json`,
@@ -102,13 +174,31 @@ is:
 rsync -a --partial --info=progress2 --checksum \
   /absolute/generated/root/train-v1 \
   /absolute/generated/root/development-v1 \
+  /absolute/generated/root/train-all-v1 \
+  /absolute/generated/root/official-val-v1 \
+  /absolute/generated/root/calibration-fit-v1 \
+  /absolute/generated/root/calibration-evaluation-v1 \
   <user>@<server>:/absolute/server/data/
 ```
 
-Add `train-all-v1`, `official-val-v1`, and the calibration directories when
-using the single-transfer workflow. Do not use `--delete` for a handoff. If the
-site provides managed object storage or a data-transfer node, prefer that
-mechanism while retaining the same complete-directory rule.
+The six-directory command is the recommended single-transfer workflow. Omit
+the final four directories only when deliberately choosing the two-transfer
+workflow. Do not use `--delete` for a handoff. If the site provides managed
+object storage or a data-transfer node, prefer that mechanism while retaining
+the same complete-directory rule.
+
+Do not blindly copy the entire `hm3d-semseg-data` directory:
+
+- `generated/<dataset-name>` directories listed above are the required data;
+- `cache/` is optional and may instead be reconstructed from the pinned model
+  revision;
+- existing local `runs/` are not needed unless resuming one of those exact
+  runs;
+- audits, inspection images, and the pilot remain useful local records but are
+  not training-server inputs.
+
+Transfer repository source through Git at the exact committed SHA rather than
+copying the repository working directory with the data.
 
 The Hugging Face cache is optional to transfer. On a connected server, run
 `download-model` against the already recorded revision. On an offline server,
@@ -184,14 +274,18 @@ hm3d-semseg download-model \
 
 ## 6. Verify the handoff before a long job
 
-Validate each transferred dataset once on the server. This fully decodes the
-files and catches a truncated transfer rather than discovering it during epoch
-ten:
+Validate each transferred dataset once on the server before its first use. This
+fully decodes the files and catches a truncated transfer rather than discovering
+it during epoch ten. The initial development phase requires:
 
 ```bash
 hm3d-semseg validate-dataset --dataset /absolute/server/data/train-v1
 hm3d-semseg validate-dataset --dataset /absolute/server/data/development-v1
 ```
+
+Before final training and evaluation, similarly validate `train-all-v1`,
+`official-val-v1`, `calibration-fit-v1`, and
+`calibration-evaluation-v1` if they were included in the handoff.
 
 Then repeat the configured tiny-overfit experiment on the server:
 
@@ -304,6 +398,12 @@ destination without overwriting previous runs. It contains resolved config,
 provenance, JSONL metrics, summaries, plots, TensorBoard events, diagnostics,
 evaluation reports, and recoverable checkpoints.
 
+This is an artifact return, not a Git pull. If `git status --short` is clean on
+the server—as it normally should be—the workstation repository already has the
+correct source. If intentional source commits were made on the server, push and
+review them through the normal Git remote, then check out that exact revision on
+the workstation separately from copying the run.
+
 Before copying, create a small checksum file inside the calibrated checkpoint:
 
 ```bash
@@ -327,6 +427,12 @@ rsync -a --partial --info=progress2 \
 cd /absolute/local/runs/server/<final-run>/checkpoints/calibrated
 sha256sum -c SHA256SUMS
 ```
+
+For a complete research archive, also return the full selected development run,
+the competing recipe's `summary.json`, `metrics_summary.json`, development
+evaluation reports and plots, plus scheduler or `tmux` logs. The calibrated
+checkpoint inside the final run is the deployment artifact; the rest explains
+how it was produced.
 
 Keep the server copy until the local checksum, inference test, and institutional
 backup have succeeded. Do not copy the Conda environment back. The workstation
@@ -382,6 +488,4 @@ it in the archived full run. Never deploy only `model.safetensors`, because the
 architecture, label mapping, camera contract, model provenance, and calibrated
 temperature would be lost.
 
-Continue with [training](07_training.md), then
-[evaluation and calibration](08_evaluation_and_calibration.md), and finally
-[inference and ObjectNav integration](09_inference_and_objectnav_integration.md).
+Next: [training](07_training.md).

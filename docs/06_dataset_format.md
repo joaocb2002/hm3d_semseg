@@ -1,5 +1,9 @@
 # 6. Dataset format
 
+**Execution location: workstation.** Validate the portable dataset contract
+here before transfer. The server repeats validation after copying, while the
+original workstation datasets remain the recoverable source of truth.
+
 Each version is self-describing:
 
 ```text
@@ -39,9 +43,6 @@ photometric jitter affects RGB only. Class zero remains zero.
 Scene lists—not rendered frames—define fit/development/calibration partitions.
 Never randomly split the manifest.
 
-Before training on another machine, follow the
-[workstation-to-server handoff and return guide](server_handoff.md). It explains
-which complete dataset directories move, how to verify them, how to recreate the
-host-specific environment, and which final artifacts return.
-
-Next: [training](07_training.md).
+Next: [prepare the workstation-to-server handoff](06a_server_handoff.md). It
+explains which complete dataset directories move, how to verify them, how to
+recreate the host-specific environment, and which final artifacts return.

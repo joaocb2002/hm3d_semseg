@@ -90,3 +90,5 @@ manifest manually. Validate when complete.
 Set `training.resume` to `checkpoints/last`. Model, optimizer, scheduler, scaler,
 epoch, and global step are restored. If config or camera/data changed, start a
 new named run.
+
+Next: [CLI reference](12_cli_reference.md).

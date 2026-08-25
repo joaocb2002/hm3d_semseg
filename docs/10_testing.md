@@ -1,5 +1,10 @@
 # 10. Testing
 
+Testing is machine-specific: renderer/HM3D integration tests stay on the
+workstation, CUDA acceptance and tiny overfit run on the GPU server, and final
+checkpoint inference/camera compatibility run again on the workstation or
+ObjectNav host after artifacts return.
+
 Fast unit tests require no Habitat, HM3D, GPU, or network:
 
 ```bash

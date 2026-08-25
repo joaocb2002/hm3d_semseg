@@ -1,5 +1,10 @@
 # 5. Sampling and generation
 
+**Execution location: workstation.** This is the only machine that needs the
+licensed HM3D source assets and Habitat renderer. Its output is a collection of
+self-contained offline dataset roots; those roots, not the simulator install,
+cross to the GPU server.
+
 Run every command in this guide from the rendering environment:
 
 ```bash

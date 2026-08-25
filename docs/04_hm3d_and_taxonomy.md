@@ -1,5 +1,9 @@
 # 4. HM3D and taxonomy
 
+**Execution location: workstation in the `habitat` environment.** The audited
+mapping and frozen scene lists are checked repository inputs; rendered semantic
+decisions are preserved inside the datasets transferred in step 06a.
+
 Semantic observations contain scene-specific object IDs, not MPCAT40 IDs. The
 pipeline is:
 
@@ -46,4 +50,3 @@ ignored/unknown policy. Before full training repeat with `--split train` and
 `--split val`; freeze the mapping asset hash and policy afterwards.
 
 Next: [sampling and generation](05_sampling_and_generation.md).
-

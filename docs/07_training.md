@@ -1,8 +1,14 @@
 # 7. Training
 
+**Execution location: GPU server.** Enter this step with the exact committed
+repository clone, validated transferred datasets, pinned model snapshot, and a
+fresh server-local `configs/local.yaml`. This step writes only to the external
+server run root; it does not put learned weights into Git. Remain on the server
+through step 08.
+
 Leave the rendering environment and run every command in this guide from the
 host-matched training environment. When training on a dedicated GPU server,
-complete the [workstation-to-server handoff](server_handoff.md) first; the
+complete the [workstation-to-server handoff](06a_server_handoff.md) first; the
 server needs the repository and complete offline datasets, not Habitat or HM3D
 source assets.
 
@@ -137,6 +143,7 @@ After development, freeze recipe and duration. Use a distinct validated
 `train-all-v1` dataset containing all 145 training scenes; never extend the
 130-scene fit dataset in place. Set the development dataset to null, choose a
 new final run name, and train without tuning on official validation. The
-[handoff guide](server_handoff.md) gives the exact server and return sequence.
+[handoff guide](06a_server_handoff.md) gives the exact server and return
+sequence.
 
-Next: [evaluation and calibration](08_evaluation_and_calibration.md).
+Still on the GPU server, next: [evaluation and calibration](08_evaluation_and_calibration.md).

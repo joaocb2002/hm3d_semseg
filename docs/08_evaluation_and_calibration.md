@@ -1,10 +1,15 @@
 # 8. Evaluation and calibration
 
-These commands normally run on the GPU server that produced the checkpoint.
+**Execution location: GPU server.** Enter this step with the frozen final
+checkpoint and the previously transferred official/calibration datasets. Exit
+it with a complete final run containing official evaluation, disjoint
+calibration evaluation, benchmark results, and `checkpoints/calibrated`.
+
+These commands run on the GPU server that produced the checkpoint.
 Official validation remains untouched until the development recipe and duration
 are frozen. After calibration and benchmarking, return the complete final run
 and calibrated checkpoint using the
-[workstation-to-server handoff guide](server_handoff.md).
+[workstation-to-server handoff guide](06a_server_handoff.md).
 
 Evaluate a fixed scene-disjoint manifest:
 
@@ -32,65 +37,55 @@ See [losses, metrics, and run artifacts](losses_and_metrics.md) for formulas,
 intuitive interpretations, reporting priorities, absent-class rules, and the
 exact JSON/NPY/plot paths produced by training and evaluation.
 
-Use the official 36-scene validation only after freezing:
+Step 06a prepared and transferred `official-val-v1`, `calibration-fit-v1`, and
+`calibration-evaluation-v1`; it did not evaluate them. Do not regenerate these
+on the training-only server. Use the official 36-scene validation only after
+freezing the recipe and duration:
 
 ```bash
-hm3d-semseg generate-dataset \
-  --config configs/data/validation.yaml \
-  --local-config configs/local.yaml \
-  --official-split val
 hm3d-semseg evaluate \
   --checkpoint /absolute/final/checkpoints/last \
-  --dataset /absolute/official-val \
-  --output /absolute/final/evaluation-official-val
+  --dataset /absolute/server/data/official-val-v1 \
+  --output /absolute/final/evaluation-official-val \
+  --config /absolute/path/to/frozen-final-experiment.yaml \
+  --local-config configs/local.yaml
 ```
 
 Call these validation results, never private-test results.
 
-Split official validation scenes deterministically into calibration-fit and
-calibration-evaluation lists. Fit temperature only on the former:
-
-```bash
-hm3d-semseg make-calibration-split \
-  --local-config configs/local.yaml \
-  --audit /absolute/generated/root/audits/val \
-  --output configs/data/splits
-```
-
-Generate two validation datasets using the saved scene lists. Then:
-
-```bash
-hm3d-semseg generate-dataset \
-  --config configs/data/validation.yaml \
-  --local-config configs/local.yaml \
-  --official-split val \
-  --dataset-name calibration-fit-v1 \
-  --split-list configs/data/splits/calibration_fit.txt
-
-hm3d-semseg generate-dataset \
-  --config configs/data/validation.yaml \
-  --local-config configs/local.yaml \
-  --official-split val \
-  --dataset-name calibration-evaluation-v1 \
-  --split-list configs/data/splits/calibration_evaluation.txt
-```
-
-Then:
+The checked-in calibration lists partition the 36 official validation scenes
+into 12 temperature-fit and 24 probability-evaluation scenes. Freeze model
+weights and fit only the scalar temperature on the former:
 
 ```bash
 hm3d-semseg calibrate \
   --checkpoint /absolute/final/checkpoints/last \
-  --dataset /absolute/calibration-fit \
+  --dataset /absolute/server/data/calibration-fit-v1 \
   --output /absolute/final/checkpoints/calibrated \
   --local-config configs/local.yaml
 ```
 
-`calibration.json` records every fit scene and optimization details. Evaluate
-calibrated probabilities with `--temperature <saved-value>` only on the disjoint
-calibration-evaluation scenes; evaluation rejects overlap with recorded fit
-scenes. Temperature scaling preserves argmax, so
-segmentation metrics can still be reported over all official validation; label
-calibration metrics by their disjoint evaluation subset.
+`calibration.json` records the fitted value, every fit scene, and optimization
+details. Read that value and evaluate calibrated probabilities only on the
+disjoint calibration-evaluation scenes:
+
+```bash
+CALIBRATED=/absolute/final/checkpoints/calibrated
+TEMPERATURE="$(jq -r .temperature "$CALIBRATED/calibration.json")"
+
+hm3d-semseg evaluate \
+  --checkpoint "$CALIBRATED" \
+  --dataset /absolute/server/data/calibration-evaluation-v1 \
+  --output /absolute/final/evaluation-calibration \
+  --config /absolute/path/to/frozen-final-experiment.yaml \
+  --local-config configs/local.yaml \
+  --temperature "$TEMPERATURE"
+```
+
+Evaluation rejects overlap with recorded fit scenes. Temperature scaling
+preserves argmax, so segmentation metrics can still be reported over all
+official validation; label calibrated probability metrics by their disjoint
+24-scene evaluation subset.
 
 For final research reporting run at least three seeds and report mean/std. Add
 native-resolution batch-1 latency, FPS, p95, peak memory, parameter count,
@@ -98,10 +93,26 @@ hardware, precision, warm-up, and timing iterations.
 
 ```bash
 hm3d-semseg benchmark-inference \
-  --checkpoint /absolute/final/checkpoints/last \
+  --checkpoint /absolute/final/checkpoints/calibrated \
   --output /absolute/final/benchmark \
   --warmup 20 \
   --iterations 100
 ```
 
-Next: [inference and ObjectNav](09_inference_and_objectnav_integration.md).
+## Return gate
+
+Training work on the server is now complete. Before step 09:
+
+1. Checksum the calibrated deployment files.
+2. Copy the complete final run and required recipe-development evidence back to
+   the workstation with `rsync` or managed artifact storage.
+3. Verify the checksums on the workstation.
+4. Keep the server copy until local inference and backup succeed.
+5. Do not `git add` the returned checkpoint. The workstation source repository
+   stays at the commit recorded in `provenance.json`; the run belongs under the
+   external `hm3d-semseg-data/runs` tree.
+
+Use the exact commands in
+[step 06a, Preserve and return the results](06a_server_handoff.md#9-preserve-and-return-the-results).
+
+Back on the workstation, next: [inference and ObjectNav](09_inference_and_objectnav_integration.md).

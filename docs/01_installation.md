@@ -1,6 +1,10 @@
 # 1. Installation
 
 This step installs one standalone CLI without changing Habitat or ObjectNav.
+The workstation first uses the render environment; the GPU server later gets
+its own independently created training environment; after the final run returns,
+the workstation/ObjectNav environment needs only the inference extra. Conda
+environments are never copied between machines.
 
 ## Render environment
 
