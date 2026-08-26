@@ -1,14 +1,21 @@
+# Training diagnostic only. No development evaluation or calibration is run.
 model:
   model_id: nvidia/segformer-b2-finetuned-ade-512-512
-  revision: null
+  revision: null  # Host-pinned revision comes from configs/local.yaml.
   num_labels: 41
   align_corners: false
   local_files_only: true
 training:
+  datasets:
+    train: train-v1
+    development: null
   seed: 2027
+  deterministic_algorithms: false
   device: auto
   max_train_samples: 4
+  max_development_samples: null
   sample_selection: scene_diverse
+  development_sample_selection: scene_diverse
   evaluate_train_subset: true
   run_name: overfit_tiny
   epochs: 50
@@ -21,9 +28,20 @@ training:
   gradient_accumulation_steps: 1
   gradient_clip_norm: 1.0
   amp: false
+  resume: null
+  class_weights: null
   class_weighting: none
+  class_weight_cap: 5.0
+  early_stopping_patience: null
 augmentation:
   horizontal_flip_probability: 0.0
   color_jitter: 0.0
   blur_probability: 0.0
   sensor_noise_std: 0.0
+evaluation:
+  # Inactive because training.datasets.development is null.
+  batch_size: 1
+  workers: 0
+  bootstrap_seed: 2027
+  bootstrap_samples: 1000
+  calibration_bins: 15

@@ -8,7 +8,7 @@ import shutil
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Callable, Dict, Iterator, Optional, cast
 
 import numpy as np
 
@@ -24,15 +24,20 @@ def _without_model_save_progress() -> Iterator[None]:
         yield
         return
 
-    is_enabled = getattr(transformers_logging, "is_progress_bar_enabled", None)
+    is_enabled = cast(
+        Optional[Callable[[], bool]],
+        getattr(transformers_logging, "is_progress_bar_enabled", None),
+    )
+    disable = cast(Callable[[], None], transformers_logging.disable_progress_bar)
+    enable = cast(Callable[[], None], transformers_logging.enable_progress_bar)
     was_enabled = bool(is_enabled()) if is_enabled is not None else True
     if was_enabled:
-        transformers_logging.disable_progress_bar()
+        disable()
     try:
         yield
     finally:
         if was_enabled:
-            transformers_logging.enable_progress_bar()
+            enable()
 
 
 def atomic_torch_save(value: Any, path: Path) -> None:
@@ -113,7 +118,10 @@ def save_checkpoint(
 def load_training_state(path: Path, map_location: str = "cpu") -> Dict[str, Any]:
     import torch
 
-    return torch.load(path / "training_state.pt", map_location=map_location, weights_only=False)
+    return cast(
+        Dict[str, Any],
+        torch.load(path / "training_state.pt", map_location=map_location, weights_only=False),
+    )
 
 
 def torch_random_state() -> Dict[str, Any]:

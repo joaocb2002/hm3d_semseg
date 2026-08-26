@@ -397,6 +397,16 @@ def _command_plan(
     reinstall_torch: bool,
     run_tests: bool,
 ) -> List[List[str]]:
+    training_constraints = root / "constraints" / "training.txt"
+    if not training_constraints.is_file():
+        raise TrainingEnvironmentError(
+            f"Missing tested training constraint file: {training_constraints}"
+        )
+    quality_constraints = root / "constraints" / "quality.txt"
+    if with_dev and not quality_constraints.is_file():
+        raise TrainingEnvironmentError(
+            f"Missing tested quality constraint file: {quality_constraints}"
+        )
     torch_command = [
         sys.executable,
         "-m",
@@ -418,16 +428,21 @@ def _command_plan(
     commands: List[List[str]] = []
     if install_torch:
         commands.append(torch_command)
+    project_command = [
+        sys.executable,
+        "-m",
+        "pip",
+        "install",
+        "-e",
+        f"{root}[{extras}]",
+        "--constraint",
+        str(training_constraints),
+    ]
+    if with_dev:
+        project_command.extend(["--constraint", str(quality_constraints)])
     commands.extend(
         [
-            [
-                sys.executable,
-                "-m",
-                "pip",
-                "install",
-                "-e",
-                f"{root}[{extras}]",
-            ],
+            project_command,
             [sys.executable, "-m", "pip", "check"],
         ]
     )

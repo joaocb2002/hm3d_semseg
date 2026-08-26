@@ -1,12 +1,22 @@
+# Full recipe-development training. Calibration is a separate post-training step.
 model:
   model_id: nvidia/segformer-b2-finetuned-ade-512-512
-  revision: null
+  revision: null  # Host-pinned revision comes from configs/local.yaml.
   num_labels: 41
   align_corners: false
   local_files_only: true
 training:
+  datasets:
+    train: train-v1
+    development: development-v1
   seed: 2027
+  deterministic_algorithms: false
   device: auto
+  max_train_samples: null
+  max_development_samples: null
+  sample_selection: scene_diverse
+  development_sample_selection: scene_diverse
+  evaluate_train_subset: false
   run_name: segformer_b2_moderately_balanced
   epochs: 20
   batch_size: 2
@@ -18,9 +28,12 @@ training:
   gradient_accumulation_steps: 1
   gradient_clip_norm: 1.0
   amp: true
-  # Computed from this run's training manifest only, normalized, capped, saved, hashed.
+  resume: null
+  class_weights: null
+  # Computed from this run's training pixels, normalized, capped, saved, and hashed.
   class_weighting: inverse_sqrt
   class_weight_cap: 5.0
+  early_stopping_patience: null
 augmentation:
   horizontal_flip_probability: 0.5
   color_jitter: 0.1

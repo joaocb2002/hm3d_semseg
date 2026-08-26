@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 import numpy as np
 
@@ -30,15 +30,20 @@ def evaluate_model(
     *,
     temperature: float = 1.0,
     device: Optional[str] = None,
+    sample_ids: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     import torch
     from torch.utils.data import DataLoader
 
-    validation = validate_dataset(dataset_root)
+    validation = validate_dataset(dataset_root, sample_ids=sample_ids)
     checkpoint_camera = CameraProfile.load(checkpoint / "camera_profile.yaml")
     dataset_camera = CameraProfile.load(dataset_root / "camera_profile.yaml")
     assert_camera_compatible(checkpoint_camera, dataset_camera, config.camera.allow_mismatch)
-    dataset = OfflineSegmentationDataset(dataset_root, augment=False)
+    dataset = OfflineSegmentationDataset(
+        dataset_root,
+        augment=False,
+        sample_ids=sample_ids,
+    )
     calibration_file = checkpoint / "calibration.json"
     if temperature != 1.0 and calibration_file.is_file():
         calibration_provenance = json.loads(calibration_file.read_text(encoding="utf-8"))
@@ -52,7 +57,7 @@ def evaluate_model(
             )
     device_selection = select_torch_device(device)
     device = device_selection.device
-    loader = DataLoader(
+    loader: Any = DataLoader(
         dataset,
         batch_size=config.evaluation.batch_size,
         shuffle=False,
@@ -105,6 +110,9 @@ def evaluate_model(
         "checkpoint": str(checkpoint.resolve()),
         "dataset": str(dataset_root.resolve()),
         "dataset_validation": validation,
+        "evaluation_scope": validation["validation_scope"],
+        "evaluation_samples": len(dataset),
+        "evaluation_scenes": len({record.scene_id for record in dataset.records}),
         "temperature": temperature,
         "device_selection": device_selection.to_dict(),
         "mean_cross_entropy_loss": (loss_sum / valid_pixels if valid_pixels else None),

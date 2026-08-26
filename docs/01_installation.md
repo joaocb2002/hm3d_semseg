@@ -14,7 +14,8 @@ those packages:
 ```bash
 conda activate habitat
 cd ~/projects/hm3d-semseg
-python -m pip install -e ".[dev,render]"
+python -m pip install -e ".[dev,render]" \
+  --constraint constraints/quality.txt
 hm3d-semseg --help
 ```
 
@@ -65,11 +66,17 @@ hm3d-semseg install-training-env --apply --run-tests
 ```
 
 The command installs PyTorch from the selected official wheel index before the
-hardware-independent `train` extra, runs `pip check`, runs the unit suite when
-requested, and executes a real matrix operation on every visible CUDA device.
+hardware-independent `train` extra. It automatically applies the tested direct
+dependency pins in `constraints/training.txt`, runs `pip check`, runs the unit
+suite when requested, and executes a real matrix operation on every visible CUDA device.
 An existing wrong wheel is replaced automatically. Success requires both the
 expected CUDA build and at least one successful GPU kernel; CUDA availability
 alone is insufficient.
+
+PyTorch and torchvision are not in that constraint file: their exact versions
+remain owned by the detected CPU/CUDA profile. Repository-only tooling is pinned
+separately in `constraints/quality.txt` and is applied whenever the default dev
+dependencies are included; see the constraints README before updating either set.
 
 Useful explicit modes:
 

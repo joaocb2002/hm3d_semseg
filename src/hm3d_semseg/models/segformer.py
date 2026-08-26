@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from hm3d_semseg.config.schema import ModelConfig
 from hm3d_semseg.exceptions import ConfigurationError, OptionalDependencyError
@@ -155,7 +155,7 @@ def parameter_groups(
     encoder_learning_rate: float,
     classifier_learning_rate: float,
     weight_decay: float,
-) -> list:
+) -> List[Dict[str, Any]]:
     classifier_parameters = []
     pretrained_parameters = []
     for name, parameter in model.named_parameters():
@@ -191,14 +191,17 @@ def download_model(model_id: str, cache_dir: Path, revision: Optional[str]) -> D
             "or install the train extra."
         ) from error
     info = model_info(model_id, revision=revision)
-    resolved_revision = info.sha
+    if not info.sha:
+        raise RuntimeError(f"Hugging Face did not resolve a commit for {model_id!r}")
+    resolved_revision = str(info.sha)
     local = snapshot_download(
         repo_id=model_id,
         revision=resolved_revision,
         cache_dir=str(cache_dir),
     )
     card_data = getattr(info, "card_data", None)
-    license_name = getattr(card_data, "license", None) if card_data is not None else None
+    raw_license = getattr(card_data, "license", None) if card_data is not None else None
+    license_name = str(raw_license) if raw_license is not None else "unknown"
     return {
         "model_id": model_id,
         "requested_revision": revision or "main",

@@ -15,6 +15,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
     get_args,
     get_origin,
     get_type_hints,
@@ -80,7 +81,7 @@ def _coerce(field_type: Any, value: Any, dotted_key: str) -> Any:
     if is_dataclass(concrete):
         if not isinstance(value, Mapping):
             raise ConfigurationError(f"'{dotted_key}' must be a mapping")
-        return _construct(concrete, value, dotted_key)
+        return _construct(cast(Type[Any], concrete), value, dotted_key)
     if concrete is bool and not isinstance(value, bool):
         raise ConfigurationError(f"'{dotted_key}' must be true or false")
     if concrete is int and (not isinstance(value, int) or isinstance(value, bool)):
@@ -93,7 +94,7 @@ def _coerce(field_type: Any, value: Any, dotted_key: str) -> Any:
 
 
 def _construct(cls: Type[T], values: Mapping[str, Any], prefix: str = "") -> T:
-    known = {field.name: field for field in fields(cls)}
+    known = {field.name: field for field in fields(cast(Any, cls))}
     type_hints = get_type_hints(cls)
     unknown = sorted(set(values) - set(known))
     if unknown:
@@ -125,7 +126,25 @@ def load_config(
         merged = _deep_merge(merged, cli_overrides)
     config = _construct(ProjectConfig, merged)
     _validate(config)
+    _resolve_training_dataset_names(config)
     return config
+
+
+def _resolve_training_dataset_names(config: ProjectConfig) -> None:
+    datasets = config.training.datasets
+    if datasets.train is None:
+        return
+    root = config.paths.generated_data_root
+    if root is None:
+        raise ConfigurationError(
+            "training.datasets.train requires paths.generated_data_root"
+        )
+    config.training.train_dataset = (root / datasets.train).resolve(strict=False)
+    config.training.development_dataset = (
+        (root / datasets.development).resolve(strict=False)
+        if datasets.development is not None
+        else None
+    )
 
 
 def _validate(config: ProjectConfig) -> None:
@@ -164,14 +183,43 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError("sampling.floor_separation_m must be positive")
     if not 0.0 <= config.training.warmup_fraction < 1.0:
         raise ConfigurationError("training.warmup_fraction must be in [0, 1)")
+    dataset_name_pattern = r"[A-Za-z0-9][A-Za-z0-9._-]*"
+    for key, value in (
+        ("train", config.training.datasets.train),
+        ("development", config.training.datasets.development),
+    ):
+        if value is not None and not re.fullmatch(dataset_name_pattern, value):
+            raise ConfigurationError(
+                f"training.datasets.{key} must be a simple dataset directory name"
+            )
+    if (
+        config.training.datasets.development is not None
+        and config.training.datasets.train is None
+    ):
+        raise ConfigurationError(
+            "training.datasets.development requires training.datasets.train"
+        )
     if (
         config.training.max_train_samples is not None
         and config.training.max_train_samples <= 0
     ):
         raise ConfigurationError("training.max_train_samples must be positive")
+    if (
+        config.training.max_development_samples is not None
+        and config.training.max_development_samples <= 0
+    ):
+        raise ConfigurationError("training.max_development_samples must be positive")
     if config.training.sample_selection not in {"manifest_order", "scene_diverse"}:
         raise ConfigurationError(
             "training.sample_selection must be 'manifest_order' or 'scene_diverse'"
+        )
+    if config.training.development_sample_selection not in {
+        "manifest_order",
+        "scene_diverse",
+    }:
+        raise ConfigurationError(
+            "training.development_sample_selection must be 'manifest_order' "
+            "or 'scene_diverse'"
         )
     if (
         config.training.evaluate_train_subset
@@ -200,6 +248,10 @@ def _validate(config: ProjectConfig) -> None:
         and config.training.early_stopping_patience <= 0
     ):
         raise ConfigurationError("training.early_stopping_patience must be positive")
+    if config.evaluation.bootstrap_samples <= 0:
+        raise ConfigurationError("evaluation.bootstrap_samples must be positive")
+    if config.evaluation.calibration_bins <= 0:
+        raise ConfigurationError("evaluation.calibration_bins must be positive")
 
 
 def save_resolved_config(config: ProjectConfig, output: Path) -> None:

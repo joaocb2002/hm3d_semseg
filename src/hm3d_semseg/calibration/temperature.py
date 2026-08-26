@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from hm3d_semseg.camera.profile import CameraProfile, assert_camera_compatible
 from hm3d_semseg.config.schema import ProjectConfig
@@ -39,7 +39,7 @@ def fit_temperature(
     dataset = OfflineSegmentationDataset(dataset_root, augment=False)
     device_selection = select_torch_device(device)
     device = device_selection.device
-    loader = DataLoader(
+    loader: Any = DataLoader(
         dataset,
         batch_size=config.evaluation.batch_size,
         shuffle=False,
@@ -58,18 +58,22 @@ def fit_temperature(
                 logits = upsample_logits(
                     raw, tuple(labels.shape[-2:]), config.model.align_corners
                 )
-            temperature = log_temperature.exp().clamp(0.05, 20.0)
-            loss = functional.cross_entropy(
-                logits / temperature, labels, ignore_index=config.taxonomy.ignore_index
+            temperature_tensor = log_temperature.exp().clamp(0.05, 20.0)
+            loss: torch.Tensor = functional.cross_entropy(
+                logits / temperature_tensor,
+                labels,
+                ignore_index=config.taxonomy.ignore_index,
             )
             optimizer.zero_grad()
-            loss.backward()
+            cast(Callable[[], None], loss.backward)()
             optimizer.step()
             losses.append(float(loss.detach().cpu()))
-    temperature = float(log_temperature.detach().exp().clamp(0.05, 20.0).cpu())
+    fitted_temperature = float(
+        log_temperature.detach().exp().clamp(0.05, 20.0).cpu()
+    )
     scenes = sorted({record.scene_id for record in dataset.records})
     provenance = {
-        "temperature": temperature,
+        "temperature": fitted_temperature,
         "checkpoint": str(checkpoint.resolve()),
         "calibration_dataset": str(dataset_root.resolve()),
         "calibration_scenes": scenes,

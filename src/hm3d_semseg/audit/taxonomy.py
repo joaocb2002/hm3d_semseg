@@ -29,16 +29,16 @@ def audit_taxonomy(
     )
     mapper = TaxonomyMapper(mapping, config.taxonomy)
     scenes = discover_scenes(config.paths.hm3d_root, split, require_complete=False)
-    raw_counts: Counter = Counter()
-    target_objects: Counter = Counter()
-    status_counts: Counter = Counter()
-    scene_coverage: Dict[str, Counter] = {}
+    raw_counts: Counter[str] = Counter()
+    target_objects: Counter[int] = Counter()
+    status_counts: Counter[str] = Counter()
+    scene_coverage: Dict[str, Counter[int]] = {}
     raw_decisions: Dict[str, Dict[str, Any]] = {}
     for scene in scenes:
         if scene.semantic_descriptor is None:
             continue
         entries = parse_semantic_descriptor(scene.semantic_descriptor)
-        coverage: Counter = Counter()
+        coverage: Counter[int] = Counter()
         for entry in entries.values():
             raw_counts[entry.raw_category] += 1
             decision = mapper.map_raw_name(entry.raw_category)

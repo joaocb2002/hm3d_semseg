@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Sequence
 import numpy as np
 
 from hm3d_semseg.config.schema import SamplingConfig
+from hm3d_semseg.types import NumpyArray
 
 
 @dataclass(frozen=True)
@@ -43,7 +44,7 @@ class PoseSampler:
         if not pitch_degrees:
             raise ValueError("At least one explicit pitch value is required")
         rng = np.random.default_rng(scene_seed(self.config.seed, scene_id))
-        positions: List[np.ndarray] = []
+        positions: List[NumpyArray] = []
         attempts = 0
         max_attempts = self.config.positions_per_scene * self.config.max_attempts_per_position
         while len(positions) < self.config.positions_per_scene and attempts < max_attempts:

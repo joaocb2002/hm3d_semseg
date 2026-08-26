@@ -8,7 +8,7 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Set, cast
 
 import numpy as np
 from PIL import Image
@@ -38,6 +38,7 @@ from hm3d_semseg.training.plots import save_training_plots
 from hm3d_semseg.training.progress import TrainingProgress
 from hm3d_semseg.training.reporting import summarize_training_metrics
 from hm3d_semseg.training.run_directory import allocate_run_directory
+from hm3d_semseg.types import NumpyArray
 from hm3d_semseg.utils.device import select_torch_device
 from hm3d_semseg.utils.hashing import atomic_write_json, sha256_file
 from hm3d_semseg.utils.provenance import collect_provenance
@@ -54,6 +55,35 @@ def _seed_everything(seed: int, *, seed_cuda: bool = False) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
+def _configure_deterministic_algorithms(enabled: bool) -> Dict[str, Any]:
+    """Configure strict PyTorch kernels before any CUDA runtime probe."""
+    import torch
+
+    if enabled:
+        workspace = os.environ.get("CUBLAS_WORKSPACE_CONFIG")
+        if workspace not in {None, ":4096:8", ":16:8"}:
+            raise ValueError(
+                "Strict deterministic training requires CUBLAS_WORKSPACE_CONFIG "
+                "to be unset, ':4096:8', or ':16:8'"
+            )
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    torch.use_deterministic_algorithms(enabled)
+    if hasattr(torch.backends, "cudnn"):
+        torch.backends.cudnn.deterministic = enabled
+        if enabled:
+            torch.backends.cudnn.benchmark = False
+    return {
+        "strict_algorithms": enabled,
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+        "cudnn_deterministic": bool(
+            getattr(getattr(torch.backends, "cudnn", None), "deterministic", False)
+        ),
+        "cudnn_benchmark": bool(
+            getattr(getattr(torch.backends, "cudnn", None), "benchmark", False)
+        ),
+    }
+
+
 def _append_jsonl(path: Path, value: Dict[str, Any]) -> None:
     with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps(value, sort_keys=True) + "\n")
@@ -61,13 +91,13 @@ def _append_jsonl(path: Path, value: Dict[str, Any]) -> None:
         os.fsync(handle.fileno())
 
 
-def _scene_ids(dataset_root: Path) -> set:
+def _scene_ids(dataset_root: Path) -> Set[str]:
     return {record.scene_id for record in load_manifest(dataset_root / "manifest.jsonl")}
 
 
 def _resolve_class_weights(
     config: ProjectConfig, train_validation: Dict[str, Any], run: Path
-) -> Optional[np.ndarray]:
+) -> Optional[NumpyArray]:
     if config.training.class_weights is not None:
         weights = np.load(config.training.class_weights, allow_pickle=False)
         source = config.training.class_weights
@@ -100,7 +130,7 @@ def _resolve_class_weights(
             "training_manifest_only": True,
         },
     )
-    return weights.astype(np.float32)
+    return cast(NumpyArray, weights.astype(np.float32))
 
 
 def _save_qualitative(
@@ -124,7 +154,7 @@ def _save_qualitative(
         result = predict(
             model,
             item["pixel_values"].unsqueeze(0).to(device),
-            output_size=target.shape,
+            output_size=(int(target.shape[0]), int(target.shape[1])),
             align_corners=model_config.align_corners,
         )
     prediction = result.labels[0].to(torch.uint8).cpu().numpy()
@@ -160,6 +190,20 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         and config.training.development_dataset is None
     ):
         raise ValueError("Early stopping is allowed only with a development dataset")
+    if (
+        config.training.max_development_samples is not None
+        and config.training.development_dataset is None
+    ):
+        raise ValueError(
+            "training.max_development_samples requires a development dataset"
+        )
+    determinism = _configure_deterministic_algorithms(
+        config.training.deterministic_algorithms
+    )
+    progress.message(
+        "Strict deterministic PyTorch algorithms: "
+        + ("enabled" if config.training.deterministic_algorithms else "disabled")
+    )
     progress.message(f"Selecting training device (requested={config.training.device})...")
     device_selection = select_torch_device(config.training.device)
     device = device_selection.device
@@ -204,15 +248,50 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             config.camera.allow_mismatch,
         )
     development_validation = None
+    development_sample_ids = None
+    development_sample_selection = None
+    limited_development = config.training.max_development_samples is not None
     if config.training.development_dataset is not None:
-        progress.message(
-            f"Validating development dataset: {config.training.development_dataset}"
+        development_sample_selection = (
+            config.training.development_sample_selection
+            if limited_development
+            else "full_manifest"
         )
-        development_validation = validate_dataset(config.training.development_dataset)
+        development_manifest = load_manifest(
+            config.training.development_dataset / "manifest.jsonl"
+        )
+        development_records = select_manifest_records(
+            development_manifest,
+            config.training.max_development_samples,
+            strategy=config.training.development_sample_selection,
+            seed=config.training.seed,
+        )
+        if limited_development:
+            development_sample_ids = [record.sample_id for record in development_records]
+            progress.message(
+                "Selected deterministic development subset: "
+                f"{len(development_records)} samples across "
+                f"{len({record.scene_id for record in development_records})} scenes "
+                f"(strategy={config.training.development_sample_selection})"
+            )
+            progress.message(
+                "Validating selected development subset: "
+                f"{config.training.development_dataset}"
+            )
+        else:
+            progress.message(
+                f"Validating development dataset: {config.training.development_dataset}"
+            )
+        development_validation = validate_dataset(
+            config.training.development_dataset,
+            sample_ids=development_sample_ids,
+        )
         progress.message(
-            "Development dataset valid: "
+            f"Development {development_validation['validation_scope']} valid: "
             f"{development_validation['samples']} samples across "
-            f"{development_validation['scenes']} scenes"
+            f"{development_validation['scenes']} scenes "
+            f"(manifest: {development_validation['manifest_samples']} samples, "
+            f"{development_validation['manifest_scenes']} scenes)"
         )
         development_camera = CameraProfile.load(
             config.training.development_dataset / "camera_profile.yaml"
@@ -243,6 +322,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     provenance.update(
         {
             "seed": config.training.seed,
+            "determinism": determinism,
             "model_id": config.model.model_id,
             "model_revision": config.model.revision,
             "device_selection": device_selection.to_dict(),
@@ -252,6 +332,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             "allocated_run": str(run),
             "training_sample_selection": config.training.sample_selection,
             "training_sample_ids": selected_sample_ids if limited_training else None,
+            "development_sample_selection": development_sample_selection,
+            "development_sample_ids": development_sample_ids,
         }
     )
     atomic_write_json(run / "provenance.json", provenance)
@@ -283,7 +365,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         augment=False,
         sample_ids=selected_sample_ids[:1],
     )
-    loader = DataLoader(
+    loader: Any = DataLoader(
         dataset,
         batch_size=config.training.batch_size,
         shuffle=True,
@@ -530,6 +612,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 run / f"evaluation-epoch-{epoch:03d}",
                 config,
                 device=device,
+                sample_ids=development_sample_ids,
             )
             candidate = evaluation["global"]["known_class_miou"]
             development_loss = evaluation["mean_cross_entropy_loss"]
@@ -641,12 +724,30 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         "best_primary_metric": best_metric,
         "device": device,
         "amp": amp_enabled,
+        "determinism": determinism,
         "class_weighting": config.training.class_weighting,
         "train_samples": len(dataset),
         "train_scenes": len({record.scene_id for record in dataset.records}),
         "training_sample_selection": config.training.sample_selection,
         "training_sample_ids": selected_sample_ids if limited_training else None,
         "training_validation_scope": train_validation["validation_scope"],
+        "development_samples": (
+            development_validation["samples"]
+            if development_validation is not None
+            else None
+        ),
+        "development_scenes": (
+            development_validation["scenes"]
+            if development_validation is not None
+            else None
+        ),
+        "development_validation_scope": (
+            development_validation["validation_scope"]
+            if development_validation is not None
+            else None
+        ),
+        "development_sample_selection": development_sample_selection,
+        "development_sample_ids": development_sample_ids,
         "train_subset_evaluation": subset_evaluation_summary,
         "batch_size": config.training.batch_size,
         "batches_per_epoch": len(loader),

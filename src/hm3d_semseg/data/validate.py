@@ -32,7 +32,7 @@ def validate_dataset(
     manifest_path = root / "manifest.jsonl"
     if not dataset_path.is_file():
         errors.append("missing dataset.yaml")
-        dataset = {}
+        dataset: Dict[str, Any] = {}
     else:
         dataset = yaml.safe_load(dataset_path.read_text(encoding="utf-8")) or {}
     if dataset.get("schema_version") != DATASET_SCHEMA_VERSION:

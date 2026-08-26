@@ -7,9 +7,10 @@ from typing import Tuple
 import numpy as np
 
 from hm3d_semseg.taxonomy.constants import NUM_CLASSES
+from hm3d_semseg.types import NumpyArray
 
 
-def palette() -> np.ndarray:
+def palette() -> NumpyArray:
     rng = np.random.default_rng(12345)
     colors = rng.integers(32, 256, size=(NUM_CLASSES, 3), dtype=np.uint8)
     colors[0] = [80, 80, 80]
@@ -17,8 +18,8 @@ def palette() -> np.ndarray:
 
 
 def colorize_mask(
-    mask: np.ndarray, ignore_color: Tuple[int, int, int] = (0, 0, 0)
-) -> np.ndarray:
+    mask: NumpyArray, ignore_color: Tuple[int, int, int] = (0, 0, 0)
+) -> NumpyArray:
     colors = palette()
     output = np.zeros((*mask.shape, 3), dtype=np.uint8)
     valid = (mask >= 0) & (mask < NUM_CLASSES)
@@ -27,7 +28,7 @@ def colorize_mask(
     return output
 
 
-def overlay_mask(rgb: np.ndarray, mask: np.ndarray, alpha: float = 0.45) -> np.ndarray:
+def overlay_mask(rgb: NumpyArray, mask: NumpyArray, alpha: float = 0.45) -> NumpyArray:
     colored = colorize_mask(mask)
     return np.clip(
         rgb.astype(np.float32) * (1.0 - alpha) + colored.astype(np.float32) * alpha,

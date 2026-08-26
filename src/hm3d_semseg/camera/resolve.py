@@ -7,7 +7,7 @@ import subprocess
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple, cast
 
 import yaml
 
@@ -33,7 +33,7 @@ def _as_plain_mapping(config: Any) -> Dict[str, Any]:
     container = OmegaConf.to_container(config, resolve=True, throw_on_missing=True)
     if not isinstance(container, dict):
         raise CameraContractError("Resolved Habitat configuration is not a mapping")
-    return container
+    return cast(Dict[str, Any], container)
 
 
 def _sensor_profile(uuid: str, values: Mapping[str, Any]) -> SensorProfile:

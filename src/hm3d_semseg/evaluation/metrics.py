@@ -2,20 +2,21 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, Sequence, Tuple
+from typing import Any, Dict, Iterable, Sequence, Tuple, cast
 
 import numpy as np
 
 from hm3d_semseg.taxonomy.constants import ID2LABEL, OBJECTNAV_SIX
+from hm3d_semseg.types import NumpyArray
 
 
-def _safe_divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
+def _safe_divide(numerator: NumpyArray, denominator: NumpyArray) -> NumpyArray:
     output = np.full(numerator.shape, np.nan, dtype=np.float64)
     np.divide(numerator, denominator, out=output, where=denominator != 0)
     return output
 
 
-def metrics_from_confusion(confusion: np.ndarray) -> Dict[str, Any]:
+def metrics_from_confusion(confusion: NumpyArray) -> Dict[str, Any]:
     """Calculate global metrics, excluding absent classes from macro averages."""
     matrix = np.asarray(confusion, dtype=np.int64)
     if matrix.shape != (41, 41):
@@ -78,7 +79,7 @@ def metrics_from_confusion(confusion: np.ndarray) -> Dict[str, Any]:
     }
 
 
-def _row_normalize(matrix: np.ndarray) -> np.ndarray:
+def _row_normalize(matrix: NumpyArray) -> NumpyArray:
     rows = matrix.sum(axis=1, keepdims=True)
     return np.divide(
         matrix,
@@ -92,7 +93,7 @@ def _optional_float(value: float) -> Any:
     return None if np.isnan(value) else float(value)
 
 
-def _mean_at(values: np.ndarray, indices: Iterable[int]) -> Any:
+def _mean_at(values: NumpyArray, indices: Iterable[int]) -> Any:
     selected = list(indices)
     return float(np.nanmean(values[selected])) if selected else None
 
@@ -108,5 +109,5 @@ def bootstrap_scene_metric(
     means = np.empty(samples, dtype=np.float64)
     for index in range(samples):
         means[index] = np.mean(rng.choice(values, size=len(values), replace=True))
-    low, high = np.percentile(means, [2.5, 97.5])
-    return float(low), float(high)
+    bounds = cast(NumpyArray, np.percentile(means, [2.5, 97.5]))
+    return float(bounds[0]), float(bounds[1])

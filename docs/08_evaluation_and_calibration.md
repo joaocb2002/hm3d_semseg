@@ -11,6 +11,12 @@ are frozen. After calibration and benchmarking, return the complete final run
 and calibrated checkpoint using the
 [workstation-to-server handoff guide](06a_server_handoff.md).
 
+Calibration is not part of any `train` run, including tiny overfit and the two
+local smoke trials. Only after final training does `hm3d-semseg calibrate`
+freeze all SegFormer weights and optimize one scalar temperature on
+`calibration-fit-v1`; the following `evaluate` command measures probability
+quality on the disjoint `calibration-evaluation-v1` root.
+
 Evaluate a fixed scene-disjoint manifest:
 
 ```bash

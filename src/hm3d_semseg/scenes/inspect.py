@@ -19,11 +19,12 @@ from hm3d_semseg.scenes.discovery import (
 )
 from hm3d_semseg.taxonomy.constants import ID2LABEL
 from hm3d_semseg.taxonomy.mapping import MatterportMapping, TaxonomyMapper
+from hm3d_semseg.types import NumpyArray
 from hm3d_semseg.utils.hashing import atomic_write_json
 from hm3d_semseg.visualization.masks import colorize_mask, overlay_mask
 
 
-def _raw_semantic_colors(ids: np.ndarray) -> np.ndarray:
+def _raw_semantic_colors(ids: NumpyArray) -> NumpyArray:
     values = ids.astype(np.uint64)
     return np.stack(
         [

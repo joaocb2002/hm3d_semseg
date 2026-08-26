@@ -15,6 +15,7 @@ import numpy as np
 from hm3d_semseg.config.schema import TaxonomyConfig
 from hm3d_semseg.exceptions import HM3DSemsegError
 from hm3d_semseg.taxonomy.constants import MPCAT40_NAMES, UNKNOWN_ID
+from hm3d_semseg.types import NumpyArray
 from hm3d_semseg.utils.hashing import sha256_file
 
 
@@ -224,8 +225,8 @@ class TaxonomyMapper:
         )
 
     def map_semantic_observation(
-        self, semantic_ids: np.ndarray, id_to_raw_name: Mapping[int, str]
-    ) -> Tuple[np.ndarray, Dict[int, MappingDecision]]:
+        self, semantic_ids: NumpyArray, id_to_raw_name: Mapping[int, str]
+    ) -> Tuple[NumpyArray, Dict[int, MappingDecision]]:
         """Map a semantic-ID image and return the per-visible-ID audit trail."""
         if semantic_ids.ndim != 2:
             raise ValueError(f"Expected a 2D semantic observation, got {semantic_ids.shape}")

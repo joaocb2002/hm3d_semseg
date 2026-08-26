@@ -13,6 +13,7 @@ from hm3d_semseg.data.dataset import OfflineSegmentationDataset
 from hm3d_semseg.evaluation.confusion import StreamingConfusionMatrix
 from hm3d_semseg.evaluation.metrics import metrics_from_confusion
 from hm3d_semseg.models.segformer import predict
+from hm3d_semseg.types import NumpyArray
 from hm3d_semseg.utils.hashing import atomic_write_json
 from hm3d_semseg.visualization.masks import overlay_mask
 
@@ -111,9 +112,9 @@ def evaluate_training_subset(
 
 
 def _save_qualitative_panel(
-    rgb: np.ndarray,
-    target: np.ndarray,
-    prediction: np.ndarray,
+    rgb: NumpyArray,
+    target: NumpyArray,
+    prediction: NumpyArray,
     output: Path,
 ) -> None:
     target_overlay = overlay_mask(rgb, target)

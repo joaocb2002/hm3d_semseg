@@ -33,6 +33,5 @@ training:
   # Auto verifies real kernels and selects the working GPU with most free memory.
   # Use cpu or cuda:N only for an intentional override.
   device: auto
-  # Set these to generated, validated dataset directories before training.
-  train_dataset: null
-  development_dataset: null
+  # Dataset names belong to the checked experiment YAML. They resolve below
+  # paths.generated_data_root and are stored as absolute paths in each run.

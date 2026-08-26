@@ -151,6 +151,15 @@ confidence interval or a Bayesian posterior.
 Both views matter. Global mIoU measures aggregate pixel performance; scene-macro
 mIoU reveals whether performance is stable across environments.
 
+`evaluation.bootstrap_samples` is the number of inexpensive statistical
+resamples used for the scene-macro confidence interval, not the number of
+rendered images or model inferences. With 15 evaluated scenes and the default
+value 1,000, the evaluator draws 15 scene scores with replacement 1,000 times,
+computes a mean for every draw, and reports the 2.5th and 97.5th percentiles.
+The fixed `bootstrap_seed` makes that interval reproducible. More resamples make
+the numerical percentile estimate smoother but do not create information or
+compensate for having few scenes.
+
 ## Probability-quality metrics
 
 | Metric | Computation | Interpretation |
@@ -165,6 +174,14 @@ Temperature calibration must be fit on dedicated calibration-fit scenes and
 reported on disjoint calibration-evaluation scenes. It can improve NLL, Brier,
 ECE, and risk-coverage while leaving IoU, accuracy, and all argmax-derived
 metrics unchanged.
+
+`evaluation.calibration_bins` controls only the ECE, reliability diagram, and
+risk-coverage aggregation. At the default 15, every valid pixel is placed into
+one of 15 equal-width confidence intervals between 0 and 1; each interval
+compares mean confidence with empirical accuracy. It does not limit pixels,
+classes, or images, and it is not how the temperature is optimized. More bins
+give finer resolution but noisier estimates when bins have little support;
+fewer bins are smoother but can hide local miscalibration.
 
 ## Optimization diagnostics
 

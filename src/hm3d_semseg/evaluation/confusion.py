@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
+
+from hm3d_semseg.types import NumpyArray
 
 
 @dataclass
 class StreamingConfusionMatrix:
     num_classes: int = 41
     ignore_index: int = 255
-    matrix: np.ndarray = field(init=False)
+    matrix: NumpyArray = field(init=False)
 
     def __post_init__(self) -> None:
         self.matrix = np.zeros((self.num_classes, self.num_classes), dtype=np.int64)
@@ -34,9 +36,9 @@ class StreamingConfusionMatrix:
         )
 
 
-def _to_numpy(value: Any) -> np.ndarray:
+def _to_numpy(value: Any) -> NumpyArray:
     if isinstance(value, np.ndarray):
         return value
     if hasattr(value, "detach"):
-        return value.detach().cpu().numpy()
+        return cast(NumpyArray, value.detach().cpu().numpy())
     return np.asarray(value)

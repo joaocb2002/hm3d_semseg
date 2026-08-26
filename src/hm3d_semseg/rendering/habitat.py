@@ -11,9 +11,10 @@ import numpy as np
 from hm3d_semseg.camera.profile import CameraProfile
 from hm3d_semseg.exceptions import OptionalDependencyError
 from hm3d_semseg.sampling.poses import CameraPose
+from hm3d_semseg.types import NumpyArray
 
 
-def postprocess_depth(depth: np.ndarray, camera: CameraProfile) -> np.ndarray:
+def postprocess_depth(depth: NumpyArray, camera: CameraProfile) -> NumpyArray:
     """Match Habitat-Lab's configured depth clipping and normalization."""
     result = np.asarray(depth, dtype=np.float32).copy()
     profile = camera.depth
@@ -38,9 +39,9 @@ def postprocess_depth(depth: np.ndarray, camera: CameraProfile) -> np.ndarray:
 
 @dataclass
 class RenderedFrame:
-    rgb: np.ndarray
-    semantic_ids: np.ndarray
-    depth: Optional[np.ndarray]
+    rgb: NumpyArray
+    semantic_ids: NumpyArray
+    depth: Optional[NumpyArray]
     semantic_id_to_raw_name: Dict[int, str]
 
 

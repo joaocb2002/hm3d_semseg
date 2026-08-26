@@ -97,3 +97,9 @@ Defaults live in the dataclass schema and checked YAML files. Unknown YAML keys,
 relative external paths, model label counts other than 41, an overlapping ignore
 index, unsupported codecs, and invalid policy values are rejected before costly
 work.
+
+Training YAMLs name datasets under `training.datasets`; those portable names
+resolve below the absolute `paths.generated_data_root` in `configs/local.yaml`.
+`null` limits mean a complete manifest, while `development: null` disables
+development evaluation. See the
+[experiment configuration matrix](../configs/experiments/README.md).

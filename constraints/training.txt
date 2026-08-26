@@ -1,0 +1,14 @@
+# Tested direct, hardware-independent training stack for Python 3.10.
+# PyTorch and torchvision are intentionally pinned by install-training-env's
+# host-selected CPU/CUDA profile instead of this file.
+huggingface-hub==1.25.1
+matplotlib==3.10.9
+numpy==1.26.4
+Pillow==12.2.0
+PyYAML==6.0.3
+safetensors==0.8.0
+scipy==1.15.3
+tensorboard==2.21.0
+tqdm==4.67.3
+transformers==5.14.1
+typer==0.27.0

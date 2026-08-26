@@ -18,6 +18,20 @@ export PYTHONNOUSERSITE=1
 cd ~/projects/hm3d-semseg
 ```
 
+The command boundary is strict:
+
+| Command | Changes model weights | Uses held-out labels | Fits temperature |
+|---|---:|---:|---:|
+| `train` | yes | only when a development dataset is configured | no |
+| `evaluate` | no | yes, from its explicit dataset | no |
+| `calibrate` | no | only `calibration-fit-v1` | yes, one scalar |
+
+Training experiment YAMLs are documented in the
+[experiment matrix](../configs/experiments/README.md). They explicitly name the
+training and optional development roots. Those names resolve below the
+host-specific `paths.generated_data_root`; each run stores both names and
+absolute resolved paths.
+
 First download the checkpoint explicitly:
 
 ```bash
@@ -32,10 +46,6 @@ The command resolves remote revision to a commit and records its snapshot under
 cache and uses `local_files_only: true`; it will not silently redownload.
 Review the checkpoint license; weights are not committed or redistributed.
 
-Set absolute `training.train_dataset` and optional
-`training.development_dataset` in `configs/local.yaml`. Validate both first.
-For the tiny-overfit diagnostic, keep `development_dataset: null`; otherwise it
-would evaluate the complete development set after every diagnostic epoch.
 `training.device` defaults to `auto`: before dataset scanning or model loading,
 the runtime executes a real kernel on each visible GPU and selects the working
 device with the most free memory. Set `cpu` or `cuda:N` only when an experiment
@@ -49,6 +59,12 @@ hm3d-semseg train \
   --config configs/experiments/overfit_tiny.yaml \
   --local-config configs/local.yaml
 ```
+
+The two optional pre-handoff
+[smoke trials](06a_server_handoff.md#2a-workstation-pre-handoff-training-tests)
+use 512 deterministic `train-v1` samples for ten epochs and evaluate the same
+256 deterministic development samples after every epoch. They verify the
+unweighted and class-balanced paths but do not replace full server runs.
 
 Training prints the selected device, effective sample count, batching and
 optimizer-step plan, AMP state, and trainable/total parameter counts. One
@@ -99,9 +115,6 @@ reach zero at the end.
 Development baseline:
 
 ```bash
-# First set this absolute path in configs/local.yaml:
-# training.development_dataset: /absolute/path/to/development-v1
-
 hm3d-semseg train \
   --config configs/experiments/segformer_b2_baseline.yaml \
   --local-config configs/local.yaml
@@ -113,6 +126,15 @@ Cosine decay, clipping, AMP, accumulation, deterministic seeds, atomic best/last
 checkpoints, optimizer/scheduler/scaler resume, and JSONL metrics are included.
 See [losses, metrics, and run artifacts](losses_and_metrics.md) for the exact
 formulas, interpretation, checkpoint-selection rules, and output-file map.
+
+Deterministic seeds make dataset selection, shuffling, initialization, and
+per-epoch augmentation repeatable under the recorded stack. They do not promise
+bit-identical CUDA arithmetic across different GPUs or library versions.
+Experiment YAMLs therefore state `deterministic_algorithms: false` explicitly
+for normal training performance. Set it to `true` only for a strict same-host
+reproducibility check: PyTorch disables cuDNN benchmarking and raises if an
+operation lacks a deterministic implementation. The setting and CUDA workspace
+policy are written to `provenance.json` and `summary.json`.
 
 The baseline is unweighted. After the training-pixel census, a controlled
 moderate alternative is available:
@@ -139,10 +161,15 @@ allocated `<name>-002`, then `<name>-003`, and so on. Resume by setting
 `training.resume` to a prior `checkpoints/last`; only an explicit resume reuses
 the requested run directory and appends its history.
 
+All artifacts stay under the external `paths.runs_root`—normally
+`~/hm3d-semseg-data/runs/<run_name>/`—and never enter the repository.
+
 After development, freeze recipe and duration. Use a distinct validated
 `train-all-v1` dataset containing all 145 training scenes; never extend the
-130-scene fit dataset in place. Set the development dataset to null, choose a
-new final run name, and train without tuning on official validation. The
+130-scene fit dataset in place. In the checked final YAML, set
+`training.datasets.train: train-all-v1` and
+`training.datasets.development: null`, choose a new run name, and train without
+tuning on official validation. The
 [handoff guide](06a_server_handoff.md) gives the exact server and return
 sequence.
 

@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 import numpy as np
 
+from hm3d_semseg.types import NumpyArray
 
-def _numpy(value: Any) -> np.ndarray:
+
+def _numpy(value: Any) -> NumpyArray:
     if isinstance(value, np.ndarray):
         return value
     if hasattr(value, "detach"):
-        return value.detach().cpu().numpy()
+        return cast(NumpyArray, value.detach().cpu().numpy())
     return np.asarray(value)
 
 
@@ -27,9 +29,9 @@ class StreamingCalibrationMetrics:
     incorrect_entropy_sum: float = 0.0
     correct_pixels: int = 0
     incorrect_pixels: int = 0
-    bin_count: np.ndarray = field(init=False)
-    bin_confidence: np.ndarray = field(init=False)
-    bin_correct: np.ndarray = field(init=False)
+    bin_count: NumpyArray = field(init=False)
+    bin_confidence: NumpyArray = field(init=False)
+    bin_correct: NumpyArray = field(init=False)
 
     def __post_init__(self) -> None:
         self.bin_count = np.zeros(self.bins, dtype=np.int64)
@@ -85,8 +87,12 @@ class StreamingCalibrationMetrics:
             out=np.zeros(self.bins),
             where=self.bin_count > 0,
         )
-        ece = np.sum(
-            self.bin_count / denominator * np.abs(average_accuracy - average_confidence)
+        ece = float(
+            np.sum(
+                self.bin_count
+                / denominator
+                * np.abs(average_accuracy - average_confidence)
+            )
         )
         high_to_low_count = np.cumsum(self.bin_count[::-1])
         high_to_low_correct = np.cumsum(self.bin_correct[::-1])
@@ -100,7 +106,7 @@ class StreamingCalibrationMetrics:
             "pixels": self.pixels,
             "nll": self.nll_sum / denominator,
             "multiclass_brier": self.brier_sum / denominator,
-            "ece": float(ece),
+            "ece": ece,
             "bins": [
                 {
                     "lower": index / self.bins,

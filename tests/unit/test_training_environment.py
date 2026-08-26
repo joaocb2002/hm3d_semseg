@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional, Tuple
 
 import pytest
 
 from hm3d_semseg.installation.training_env import (
+    PROFILES,
     GPUInfo,
     HostInfo,
     TrainingEnvironmentError,
+    _command_plan,
     parse_gpu_query,
     select_profile,
 )
@@ -88,3 +91,25 @@ def test_runtime_selection_prefers_working_gpu_with_more_free_memory() -> None:
     assert choose_device_candidate(candidates).index == 1
     with pytest.raises(DeviceCompatibilityError, match="failed a real kernel"):
         choose_device_candidate(candidates, requested_index=2)
+
+
+def test_training_install_applies_repository_constraints() -> None:
+    root = Path(__file__).resolve().parents[2]
+    commands = _command_plan(
+        PROFILES["cpu"],
+        root,
+        with_dev=True,
+        install_torch=False,
+        reinstall_torch=False,
+        run_tests=False,
+    )
+    install = commands[0]
+    constraint_paths = [
+        install[index + 1]
+        for index, value in enumerate(install)
+        if value == "--constraint"
+    ]
+    assert constraint_paths == [
+        str(root / "constraints" / "training.txt"),
+        str(root / "constraints" / "quality.txt"),
+    ]

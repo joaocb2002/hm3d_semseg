@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 
 @dataclass
@@ -94,13 +94,25 @@ class ModelConfig:
 
 
 @dataclass
+class TrainingDatasetsConfig:
+    """Portable dataset names resolved below ``paths.generated_data_root``."""
+
+    train: Optional[str] = None
+    development: Optional[str] = None
+
+
+@dataclass
 class TrainingConfig:
+    datasets: TrainingDatasetsConfig = field(default_factory=TrainingDatasetsConfig)
     seed: int = 2027
+    deterministic_algorithms: bool = False
     device: str = "auto"
     train_dataset: Optional[Path] = None
     development_dataset: Optional[Path] = None
     max_train_samples: Optional[int] = None
+    max_development_samples: Optional[int] = None
     sample_selection: str = "manifest_order"
+    development_sample_selection: str = "scene_diverse"
     evaluate_train_subset: bool = False
     run_name: str = "segformer_b2_baseline"
     epochs: int = 20
@@ -155,4 +167,4 @@ class ProjectConfig:
                 return [convert(item) for item in value]
             return value
 
-        return convert(asdict(self))
+        return cast(Dict[str, Any], convert(asdict(self)))

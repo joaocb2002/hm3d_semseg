@@ -12,51 +12,49 @@ license = {text = "MIT"}
 authors = [{name = "hm3d-semseg contributors"}]
 dependencies = [
   "numpy>=1.23,<3",
-  "Pillow>=9.5",
-  "PyYAML>=6",
-  "tqdm>=4.65",
-  "typer>=0.9",
+  "Pillow>=9.5,<13",
+  "PyYAML>=6,<7",
+  "tqdm>=4.65,<5",
+  "typer>=0.9,<1",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "mypy>=1.8",
-  "pytest>=7.4",
-  "pytest-cov>=4.1",
-  "ruff>=0.6",
-  "types-tqdm>=4.65",
+  "mypy>=1.18,<2",
+  "pytest>=7.4,<10",
+  "pytest-cov>=4.1,<8",
+  "ruff>=0.6,<1",
 ]
 render = [
   "hydra-core>=1.3,<1.4",
   "omegaconf>=2.3,<2.4",
 ]
 inference = [
-  "huggingface-hub>=0.23",
-  "safetensors>=0.4",
-  "transformers>=4.40",
+  "huggingface-hub>=0.23,<2",
+  "safetensors>=0.4,<1",
+  "transformers>=4.40,<6",
 ]
 train = [
-  "huggingface-hub>=0.23",
-  "matplotlib>=3.7",
-  "safetensors>=0.4",
-  "scipy>=1.10",
-  "tensorboard>=2.14",
-  "transformers>=4.40",
-  "types-tqdm>=4.65",
+  "huggingface-hub>=0.23,<2",
+  "matplotlib>=3.7,<4",
+  "safetensors>=0.4,<1",
+  "scipy>=1.10,<2",
+  "tensorboard>=2.14,<3",
+  "transformers>=4.40,<6",
 ]
 all = [
   "hydra-core>=1.3,<1.4",
-  "huggingface-hub>=0.23",
-  "mypy>=1.8",
+  "huggingface-hub>=0.23,<2",
+  "mypy>=1.18,<2",
   "omegaconf>=2.3,<2.4",
-  "matplotlib>=3.7",
-  "pytest>=7.4",
-  "pytest-cov>=4.1",
-  "ruff>=0.6",
-  "safetensors>=0.4",
-  "scipy>=1.10",
-  "tensorboard>=2.14",
-  "transformers>=4.40",
+  "matplotlib>=3.7,<4",
+  "pytest>=7.4,<10",
+  "pytest-cov>=4.1,<8",
+  "ruff>=0.6,<1",
+  "safetensors>=0.4,<1",
+  "scipy>=1.10,<2",
+  "tensorboard>=2.14,<3",
+  "transformers>=4.40,<6",
 ]
 
 [project.scripts]
@@ -93,3 +91,28 @@ ignore = ["UP007"]
 python_version = "3.9"
 strict = true
 warn_unused_ignores = true
+
+[[tool.mypy.overrides]]
+module = [
+  "habitat",
+  "habitat.*",
+  "habitat_sim",
+  "habitat_sim.*",
+  "omegaconf",
+  "omegaconf.*",
+  "tqdm",
+  "tqdm.*",
+  "yaml",
+]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+  "huggingface_hub",
+  "huggingface_hub.*",
+  "torch",
+  "torch.*",
+  "transformers",
+  "transformers.*",
+]
+follow_imports = "skip"

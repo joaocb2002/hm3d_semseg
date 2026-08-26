@@ -7,14 +7,16 @@ from typing import Tuple
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 
+from hm3d_semseg.types import NumpyArray
 
-def horizontal_flip(rgb: np.ndarray, mask: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+
+def horizontal_flip(rgb: NumpyArray, mask: NumpyArray) -> Tuple[NumpyArray, NumpyArray]:
     return np.ascontiguousarray(rgb[:, ::-1]), np.ascontiguousarray(mask[:, ::-1])
 
 
 def resize_pair(
-    rgb: np.ndarray, mask: np.ndarray, width: int, height: int
-) -> Tuple[np.ndarray, np.ndarray]:
+    rgb: NumpyArray, mask: NumpyArray, width: int, height: int
+) -> Tuple[NumpyArray, NumpyArray]:
     """Resize aligned arrays; labels always use nearest-neighbor interpolation."""
     resampling = getattr(Image, "Resampling", Image)
     rgb_image = Image.fromarray(rgb, mode="RGB").resize(
@@ -26,7 +28,9 @@ def resize_pair(
     return np.asarray(rgb_image).copy(), np.asarray(mask_image).copy()
 
 
-def photometric_jitter(rgb: np.ndarray, amount: float, blur: bool, factor: float) -> np.ndarray:
+def photometric_jitter(
+    rgb: NumpyArray, amount: float, blur: bool, factor: float
+) -> NumpyArray:
     image = Image.fromarray(rgb, mode="RGB")
     image = ImageEnhance.Brightness(image).enhance(1.0 + amount * factor)
     image = ImageEnhance.Contrast(image).enhance(1.0 - amount * factor)

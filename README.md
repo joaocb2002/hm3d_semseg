@@ -95,7 +95,8 @@ offline dataset.
 ```bash
 conda activate habitat
 cd ~/projects/hm3d-semseg
-python -m pip install -e ".[dev,render]"
+python -m pip install -e ".[dev,render]" \
+  --constraint constraints/quality.txt
 cp configs/local.example.yaml configs/local.yaml
 ```
 
@@ -107,6 +108,8 @@ hm3d-semseg resolve-camera \
   --local-config configs/local.yaml \
   --output /absolute/generated/root/camera/objectnav_resolved.yaml
 pytest -m "unit"
+ruff check .
+mypy src
 ```
 
 Do not continue to full generation until the printed camera values match the
@@ -171,12 +174,13 @@ At the end, the workstation owns two linked but separate records:
 The complete execution sequence is: install; configure local paths; run
 `doctor`; freeze the camera; run unit tests; inspect minival; run Habitat tests;
 audit minival; generate and validate the pilot; explicitly download the model;
-run smoke and tiny-overfit checks; audit train/val; freeze the internal split;
-generate and validate fit/development data; freeze the source commit; transfer
-complete datasets; recreate and accept the server environment; compare recipes
-on development; freeze the recipe; train on all 145 scenes; evaluate the fixed
-36-scene official validation set; calibrate on disjoint scenes; return and
-checksum the complete run; verify inference locally; integrate through the
+run the renderer smoke check; audit train/val; freeze the internal split;
+generate and validate all six offline datasets; run local tiny-overfit,
+baseline-smoke, and balanced-smoke checks; freeze the source commit; transfer
+complete datasets; recreate and accept the server environment; compare full
+recipes on development; freeze the recipe; train on all 145 scenes; evaluate
+the fixed 36-scene official validation set; calibrate on disjoint scenes; return
+and checksum the complete run; verify inference locally; integrate through the
 Python API; benchmark the actual ObjectNav host.
 
 ## Known limitations

@@ -11,7 +11,8 @@ revision, resolved configurations, and preserved run artifacts.
 | Phase | Recommended machine | Portable boundary |
 |---|---|---|
 | HM3D audit, camera resolution, rendering, dataset validation | Licensed workstation with Habitat and HM3D | Versioned offline dataset directories |
-| Tiny-overfit hardware check, recipe development, final training, evaluation, calibration | One dedicated GPU on the server | Complete run and calibrated checkpoint directories |
+| Tiny-overfit plus baseline/balanced smoke checks | Workstation training environment | Local diagnostic runs; no calibration and no transfer required |
+| Repeated tiny-overfit acceptance, full recipe development, final training, evaluation, calibration | One dedicated GPU on the server | Complete run and calibrated checkpoint directories |
 | ObjectNav inference and rollout testing | Workstation or deployment host | Calibrated checkpoint plus the exact repository version |
 
 The training server does not need Habitat-Lab, Habitat-Sim, HM3D meshes,
@@ -172,6 +173,57 @@ Every directory is self-contained. Transfer the whole directory, including
 `camera_profile.yaml`, `manifest.jsonl`, scene files, and validation artifacts.
 Do not copy only the RGB and mask subdirectories.
 
+## 2a. Workstation pre-handoff training tests
+
+After all six roots validate, run three bounded checks locally. These commands
+train model weights; they do not calibrate probabilities. Dataset names and all
+optional training/evaluation fields are explicit in the checked YAML files and
+resolve below `paths.generated_data_root` from `configs/local.yaml`.
+
+| Test | Train | Development | Purpose |
+|---|---:|---:|---|
+| Tiny overfit | 4 images, 50 epochs | `null` | Verify memorization and core training mechanics. |
+| Baseline smoke | 512 images, 10 epochs | 256 images after each epoch | Exercise unweighted training and held-out metrics. |
+| Balanced smoke | 512 images, 10 epochs | Same 256 images | Exercise inverse-square-root class weights under otherwise identical settings. |
+
+Use the training environment:
+
+```bash
+conda activate hm3d-semseg-train
+export PYTHONNOUSERSITE=1
+cd ~/projects/hm3d-semseg
+
+hm3d-semseg train \
+  --config configs/experiments/overfit_tiny.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --local-config configs/local.yaml
+```
+
+The limited selections are deterministic, scene-diverse, and recorded by exact
+ID in `provenance.json`. Edit the two `max_*_samples` values or `epochs` in a
+smoke YAML when deliberately changing its cost; `null` means the complete
+manifest. Accept a run only when it completes with finite values, no scene
+overlap, and populated reports, plots, and `checkpoints/{best,last}`.
+
+Artifacts are written only below
+`/home/joaocb2002/hm3d-semseg-data/runs/<run_name>/`. Existing names receive a
+safe numeric suffix and are never overwritten. Smoke metrics verify plumbing;
+they are too sample-limited for recipe selection. The local smoke runs do not
+need to move to the server. See the concise
+[experiment matrix](../configs/experiments/README.md) and
+[artifact map](losses_and_metrics.md#artifact-map-after-train).
+
+After the checks pass, rerun the source checks in section 1 and commit/push any
+intentional code, YAML, test, or documentation changes. The server must use that
+final recorded SHA, not an earlier pre-smoke commit.
+
 ## 3. Transfer data without changing it
 
 Create a private project location on persistent server storage. Prefer
@@ -262,15 +314,13 @@ model:
 
 training:
   device: auto
-  train_dataset: /absolute/server/data/train-v1
-  development_dataset: /absolute/server/data/development-v1
 ```
 
 Keep scientific settings—seed, augmentation, learning rates, weighting,
-epochs, and batch semantics—in checked experiment YAML files. `local.yaml`
-contains host paths and deliberate device/resume overrides. Worker count may be
-tuned after measuring input throughput, but record every change in the resolved
-configuration.
+epochs, dataset names, subset limits, and batch semantics—in checked experiment
+YAML files. `local.yaml` contains host paths and the device override. Worker
+count may be tuned after measuring input throughput, but record every change in
+the resolved configuration.
 
 Download or confirm the pinned model snapshot:
 
@@ -386,8 +436,8 @@ After recipe development:
 1. Select baseline or moderate balancing using development data only.
 2. Freeze all scientific hyperparameters and the number of epochs.
 3. Create a checked final experiment YAML with a new, unambiguous run name.
-4. Point `training.train_dataset` to `train-all-v1`.
-5. Set `training.development_dataset: null` so the 15 development scenes rejoin
+4. Set `training.datasets.train: train-all-v1`.
+5. Set `training.datasets.development: null` so the 15 development scenes rejoin
    the final training population and are no longer used for model selection.
 6. Train for the frozen duration. The protocol checkpoint is
    `checkpoints/last`.

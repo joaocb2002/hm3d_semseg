@@ -16,6 +16,7 @@ from hm3d_semseg.data.dataset import IMAGENET_MEAN, IMAGENET_STD
 from hm3d_semseg.exceptions import OptionalDependencyError
 from hm3d_semseg.models.segformer import build_segformer, predict
 from hm3d_semseg.taxonomy.constants import ID2LABEL
+from hm3d_semseg.types import NumpyArray
 from hm3d_semseg.utils.device import select_torch_device
 from hm3d_semseg.utils.hashing import atomic_write_json
 from hm3d_semseg.visualization.masks import colorize_mask, overlay_mask
@@ -96,7 +97,7 @@ class SemanticSegmenter:
             raise ValueError("Checkpoint has no frozen camera profile")
         assert_camera_compatible(self.camera_profile, camera_profile, allow_mismatch)
 
-    def __call__(self, rgb: np.ndarray) -> Dict[str, np.ndarray]:
+    def __call__(self, rgb: NumpyArray) -> Dict[str, NumpyArray]:
         if rgb.ndim != 3 or rgb.shape[2] != 3 or rgb.dtype != np.uint8:
             raise ValueError(f"Expected uint8 RGB [H,W,3], got {rgb.shape} {rgb.dtype}")
         normalized = (rgb.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
@@ -109,7 +110,7 @@ class SemanticSegmenter:
             output = predict(
                 self.model,
                 tensor,
-                output_size=rgb.shape[:2],
+                output_size=(int(rgb.shape[0]), int(rgb.shape[1])),
                 align_corners=self.model_config.align_corners,
                 temperature=self.temperature,
             )
