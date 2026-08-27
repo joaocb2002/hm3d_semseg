@@ -8,7 +8,7 @@ import os
 import random
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Set, cast
+from typing import Any, Dict, List, Optional, Set, cast
 
 import numpy as np
 from PIL import Image
@@ -17,14 +17,18 @@ from hm3d_semseg.camera.profile import CameraProfile, assert_camera_compatible
 from hm3d_semseg.config.loader import save_resolved_config
 from hm3d_semseg.config.schema import ProjectConfig
 from hm3d_semseg.data.dataset import OfflineSegmentationDataset, select_manifest_records
-from hm3d_semseg.data.schema import load_manifest
-from hm3d_semseg.data.storage import load_mask
+from hm3d_semseg.data.schema import ManifestRecord, load_manifest
 from hm3d_semseg.data.validate import validate_dataset
+from hm3d_semseg.diagnostics.qualitative import (
+    append_qualitative_epoch,
+    capture_model_qualitative,
+    select_qualitative_records,
+    selection_report,
+)
 from hm3d_semseg.evaluation.run import evaluate_model
 from hm3d_semseg.models.segformer import (
     build_segformer,
     parameter_groups,
-    predict,
     segmentation_loss,
 )
 from hm3d_semseg.training.checkpoint import (
@@ -36,13 +40,13 @@ from hm3d_semseg.training.checkpoint import (
 from hm3d_semseg.training.diagnostics import evaluate_training_subset
 from hm3d_semseg.training.plots import save_training_plots
 from hm3d_semseg.training.progress import TrainingProgress
+from hm3d_semseg.training.report import generate_training_report
 from hm3d_semseg.training.reporting import summarize_training_metrics
 from hm3d_semseg.training.run_directory import allocate_run_directory
 from hm3d_semseg.types import NumpyArray
 from hm3d_semseg.utils.device import select_torch_device
 from hm3d_semseg.utils.hashing import atomic_write_json, sha256_file
 from hm3d_semseg.utils.provenance import collect_provenance
-from hm3d_semseg.visualization.masks import overlay_mask
 
 
 def _seed_everything(seed: int, *, seed_cuda: bool = False) -> None:
@@ -133,46 +137,77 @@ def _resolve_class_weights(
     return cast(NumpyArray, weights.astype(np.float32))
 
 
-def _save_qualitative(
-    model: Any,
-    dataset: OfflineSegmentationDataset,
-    model_config: Any,
-    output: Path,
-    device: str,
-) -> None:
-    import torch
-
-    if not dataset.records:
-        return
-    item = dataset[0]
-    record = dataset.records[0]
-    with Image.open(dataset.root / record.rgb) as handle:
-        rgb = np.asarray(handle.convert("RGB"), dtype=np.uint8).copy()
-    target = load_mask(dataset.root / record.mask)
-    model.eval()
-    with torch.inference_mode():
-        result = predict(
-            model,
-            item["pixel_values"].unsqueeze(0).to(device),
-            output_size=(int(target.shape[0]), int(target.shape[1])),
-            align_corners=model_config.align_corners,
-        )
-    prediction = result.labels[0].to(torch.uint8).cpu().numpy()
-    panel = np.concatenate(
-        [rgb, overlay_mask(rgb, target), overlay_mask(rgb, prediction)], axis=1
-    )
-    Image.fromarray(panel, mode="RGB").save(output)
-
-
 def _prepare_run_directories(run: Path) -> None:
     """Create the stable training-artifact directory hierarchy."""
     for directory in (
         "checkpoints",
         "tensorboard",
         "plots",
-        "diagnostics/training_progress/qualitative",
+        "diagnostics/training_progress/qualitative/train",
+        "diagnostics/training_progress/qualitative/development",
+        "report/tables",
+        "report/plots",
     ):
         (run / directory).mkdir(parents=True, exist_ok=True)
+
+
+def _add_tensorboard_image(writer: Any, tag: str, path: Path, epoch: int) -> None:
+    """Log a saved contact sheet without introducing a torchvision dependency."""
+    with Image.open(path) as handle:
+        image = np.asarray(handle.convert("RGB"), dtype=np.uint8)
+    writer.add_image(tag, image, epoch, dataformats="HWC")
+
+
+def _configure_tensorboard_layout(writer: Any) -> None:
+    """Group the most useful curves into stable TensorBoard dashboards."""
+    writer.add_custom_scalars(
+        {
+            "Generalization": {
+                "cross_entropy": [
+                    "Multiline",
+                    ["train/epoch_loss", "development/loss"],
+                ],
+                "segmentation": [
+                    "Multiline",
+                    [
+                        "development/known_class_miou",
+                        "development/objectnav_six_miou",
+                        "development/scene_macro_mean_miou",
+                    ],
+                ],
+                "probability_quality": [
+                    "Multiline",
+                    [
+                        "development/nll",
+                        "development/multiclass_brier",
+                        "development/ece",
+                    ],
+                ],
+                "per_class_iou": [
+                    "Multiline",
+                    ["development/per_class_iou/.*"],
+                ],
+                "per_scene_miou": [
+                    "Multiline",
+                    ["development/per_scene_miou/.*"],
+                ],
+            },
+            "Optimization": {
+                "learning_rates": [
+                    "Multiline",
+                    [
+                        "train/learning_rate_pretrained",
+                        "train/learning_rate_classifier",
+                    ],
+                ],
+                "throughput": ["Multiline", ["train/samples_per_second"]],
+                "health": [
+                    "Multiline",
+                    ["train/gradient_norm", "train/optimizer_step_skipped"],
+                ],
+            },
+        }
+    )
 
 
 def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any]:
@@ -248,6 +283,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             config.camera.allow_mismatch,
         )
     development_validation = None
+    development_records: List[ManifestRecord] = []
     development_sample_ids = None
     development_sample_selection = None
     limited_development = config.training.max_development_samples is not None
@@ -317,6 +353,30 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             f"to '{run.name}'."
         )
     _prepare_run_directories(run)
+    qualitative_train_records = select_qualitative_records(
+        selected_records,
+        config.training.qualitative_samples,
+        seed=config.training.seed,
+    )
+    qualitative_development_records = (
+        select_qualitative_records(
+            development_records,
+            config.training.qualitative_samples,
+            seed=config.training.seed,
+        )
+        if development_records
+        else []
+    )
+    qualitative_root = run / "diagnostics" / "training_progress" / "qualitative"
+    atomic_write_json(
+        qualitative_root / "selection.json",
+        selection_report(
+            qualitative_train_records,
+            qualitative_development_records,
+            seed=config.training.seed,
+            requested_per_split=config.training.qualitative_samples,
+        ),
+    )
     save_resolved_config(config, run / "resolved_config.yaml")
     provenance = collect_provenance(config.paths.habitat_lab_root)
     provenance.update(
@@ -334,6 +394,12 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             "training_sample_ids": selected_sample_ids if limited_training else None,
             "development_sample_selection": development_sample_selection,
             "development_sample_ids": development_sample_ids,
+            "qualitative_train_sample_ids": [
+                record.sample_id for record in qualitative_train_records
+            ],
+            "qualitative_development_sample_ids": [
+                record.sample_id for record in qualitative_development_records
+            ],
         }
     )
     atomic_write_json(run / "provenance.json", provenance)
@@ -360,10 +426,10 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         seed=config.training.seed,
         sample_ids=selected_sample_ids if limited_training else None,
     )
-    qualitative_dataset = OfflineSegmentationDataset(
+    qualitative_train_dataset = OfflineSegmentationDataset(
         config.training.train_dataset,
         augment=False,
-        sample_ids=selected_sample_ids[:1],
+        sample_ids=[record.sample_id for record in qualitative_train_records],
     )
     loader: Any = DataLoader(
         dataset,
@@ -417,6 +483,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         from torch.utils.tensorboard import SummaryWriter
 
         tensorboard = SummaryWriter(log_dir=str(run / "tensorboard"))
+        _configure_tensorboard_layout(tensorboard)
     except ImportError:
         tensorboard = None
     metrics_path = run / "metrics.jsonl"
@@ -511,8 +578,11 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 gradient_norm = torch.nn.utils.clip_grad_norm_(
                     model.parameters(), config.training.gradient_clip_norm
                 )
+                scale_before = float(scaler.get_scale()) if amp_enabled else 1.0
                 scaler.step(optimizer)
                 scaler.update()
+                scale_after = float(scaler.get_scale()) if amp_enabled else 1.0
+                optimizer_step_skipped = amp_enabled and scale_after < scale_before
                 optimizer.zero_grad(set_to_none=True)
                 scheduler.step()
                 global_step += 1
@@ -531,6 +601,10 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                         "step": global_step,
                         "loss": float(loss.detach().cpu()),
                         "gradient_norm": float(gradient_norm.detach().cpu()),
+                        "gradient_norm_finite": bool(
+                            torch.isfinite(gradient_norm).detach().cpu()
+                        ),
+                        "optimizer_step_skipped": optimizer_step_skipped,
                         "learning_rates": [group["lr"] for group in optimizer.param_groups],
                         "samples": samples_since_step,
                         "step_seconds": step_seconds,
@@ -551,6 +625,11 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                     tensorboard.add_scalar(
                         "train/gradient_norm",
                         float(gradient_norm.detach().cpu()),
+                        global_step,
+                    )
+                    tensorboard.add_scalar(
+                        "train/optimizer_step_skipped",
+                        int(optimizer_step_skipped),
                         global_step,
                     )
                     for group_index, group in enumerate(optimizer.param_groups):
@@ -578,17 +657,30 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         )
         if tensorboard is not None:
             tensorboard.add_scalar("train/epoch_loss", epoch_loss, epoch)
-        _save_qualitative(
-            model,
-            qualitative_dataset,
-            config.model,
-            run
-            / "diagnostics"
-            / "training_progress"
-            / "qualitative"
-            / f"epoch_{epoch:03d}.png",
-            device,
+        capture_qualitative = (
+            epoch == start_epoch
+            or (epoch + 1) % config.training.qualitative_every_epochs == 0
+            or epoch + 1 == config.training.epochs
         )
+        if capture_qualitative:
+            progress.phase(epoch=epoch, name="training qualitative")
+            train_qualitative = capture_model_qualitative(
+                model,
+                qualitative_train_dataset,
+                qualitative_root / "train",
+                epoch=epoch,
+                device=device,
+                align_corners=config.model.align_corners,
+                ignore_index=config.taxonomy.ignore_index,
+            )
+            append_qualitative_epoch(qualitative_root / "train", train_qualitative)
+            if tensorboard is not None:
+                _add_tensorboard_image(
+                    tensorboard,
+                    "qualitative/train_fixed_set",
+                    qualitative_root / "train" / train_qualitative["contact_sheet"],
+                    epoch,
+                )
         progress.phase(epoch=epoch, name="checkpoint")
         save_checkpoint(
             run / "checkpoints" / "last",
@@ -613,6 +705,15 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 config,
                 device=device,
                 sample_ids=development_sample_ids,
+                qualitative_sample_ids=(
+                    [record.sample_id for record in qualitative_development_records]
+                    if capture_qualitative
+                    else None
+                ),
+                qualitative_output=(
+                    qualitative_root / "development" if capture_qualitative else None
+                ),
+                qualitative_epoch=epoch if capture_qualitative else None,
             )
             candidate = evaluation["global"]["known_class_miou"]
             development_loss = evaluation["mean_cross_entropy_loss"]
@@ -624,12 +725,54 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                     "epoch": epoch,
                     "loss": development_loss,
                     "known_class_miou": candidate,
+                    "overall_pixel_accuracy": evaluation["global"]["overall_pixel_accuracy"],
+                    "objectnav_six_miou": evaluation["global"]["objectnav_six_miou"],
+                    "scene_macro_mean_miou": evaluation["scene_macro"]["mean"],
+                    "nll": evaluation["probability_quality"]["nll"],
+                    "ece": evaluation["probability_quality"]["ece"],
+                    "multiclass_brier": evaluation["probability_quality"]["multiclass_brier"],
                 },
             )
             if tensorboard is not None and development_loss is not None:
                 tensorboard.add_scalar("development/loss", development_loss, epoch)
             if tensorboard is not None and candidate is not None:
                 tensorboard.add_scalar("development/known_class_miou", candidate, epoch)
+            if tensorboard is not None:
+                for name, value in (
+                    ("overall_pixel_accuracy", evaluation["global"]["overall_pixel_accuracy"]),
+                    ("objectnav_six_miou", evaluation["global"]["objectnav_six_miou"]),
+                    ("scene_macro_mean_miou", evaluation["scene_macro"]["mean"]),
+                    ("nll", evaluation["probability_quality"]["nll"]),
+                    ("ece", evaluation["probability_quality"]["ece"]),
+                    ("multiclass_brier", evaluation["probability_quality"]["multiclass_brier"]),
+                ):
+                    if value is not None:
+                        tensorboard.add_scalar(f"development/{name}", value, epoch)
+                for class_metrics in evaluation["global"]["per_class"]:
+                    if class_metrics["id"] > 0 and class_metrics["iou"] is not None:
+                        tensorboard.add_scalar(
+                            "development/per_class_iou/"
+                            + str(class_metrics["name"]),
+                            class_metrics["iou"],
+                            epoch,
+                        )
+                for scene_id, scene_miou in evaluation["scene_macro"][
+                    "per_scene_known_class_miou"
+                ].items():
+                    if scene_miou is not None:
+                        tensorboard.add_scalar(
+                            f"development/per_scene_miou/{scene_id}",
+                            scene_miou,
+                            epoch,
+                        )
+                qualitative = evaluation.get("qualitative")
+                if qualitative is not None:
+                    _add_tensorboard_image(
+                        tensorboard,
+                        "qualitative/development_fixed_set",
+                        qualitative_root / "development" / qualitative["contact_sheet"],
+                        epoch,
+                    )
         improved = best_metric is None or primary_metric > best_metric
         if improved:
             best_metric = primary_metric
@@ -748,6 +891,14 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         ),
         "development_sample_selection": development_sample_selection,
         "development_sample_ids": development_sample_ids,
+        "qualitative_samples_per_split": config.training.qualitative_samples,
+        "qualitative_every_epochs": config.training.qualitative_every_epochs,
+        "qualitative_train_sample_ids": [
+            record.sample_id for record in qualitative_train_records
+        ],
+        "qualitative_development_sample_ids": [
+            record.sample_id for record in qualitative_development_records
+        ],
         "train_subset_evaluation": subset_evaluation_summary,
         "batch_size": config.training.batch_size,
         "batches_per_epoch": len(loader),
@@ -782,5 +933,11 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     atomic_write_json(metrics_summary_path, metrics_summary)
     summary["metrics_summary"] = str(metrics_summary_path)
     summary["metric_plots"] = metrics_summary["plots"]
+    atomic_write_json(run / "summary.json", summary)
+    progress.message("Building human-readable training report...")
+    human_report = generate_training_report(run)
+    summary["human_report"] = human_report["report"]
+    metrics_summary["human_report"] = human_report["report"]
+    atomic_write_json(metrics_summary_path, metrics_summary)
     atomic_write_json(run / "summary.json", summary)
     return summary

@@ -31,14 +31,17 @@ to different dataset roots and different protocol stages:
 | Final refit | `train-all-v1` (all 145 training scenes) | Refit the frozen recipe once using all official training scenes. This is a fresh render, not a concatenation of the other directories. |
 | Final evaluation | `official-val-v1` (36 official validation scenes) | Evaluate the frozen final checkpoint once. It never supplies gradients or selects the recipe. |
 
-The final-refit invocation deliberately overrides the selected recipe's
-`training.datasets.train` with `train-all-v1`, sets
-`training.datasets.development: null`, and uses `checkpoints/last` after the
-preselected duration. `official-val-v1` is deliberately absent from every
-training YAML: it is passed only to the later explicit `evaluate` command.
-The exact final-refit and evaluation commands are documented in
-[training](../../docs/07_training.md) and
-[evaluation and calibration](../../docs/08_evaluation_and_calibration.md).
+After recipe selection, create and commit a distinct checked
+`segformer_b2_final.yaml` based on the winning candidate. It must use
+`train-all-v1`, set `development: null`, remove subset limits, use a distinct
+run name, and freeze the preselected duration. The file is deliberately not
+created before the baseline/balanced comparison because its weighting and epoch
+count are not known yet. The final refit uses `checkpoints/last`.
+
+`official-val-v1` is absent from every training YAML: it is passed only to the
+later explicit `evaluate` command. The exact protocol is documented in
+[server training](../../docs/08_server_training.md) and
+[server evaluation and calibration](../../docs/09_server_evaluation_and_calibration.md).
 
 ## Configuration contract
 
@@ -57,12 +60,21 @@ The exact final-refit and evaluation commands are documented in
   rejects unsupported nondeterministic operations instead of silently using
   them. The resolved policy is stored in run provenance.
 - `evaluate_train_subset` is used only for the tiny memorization report.
+- `qualitative_samples: 10` fixes up to ten ground-truth-selected views per
+  active split. Selection is deterministic, scene-diverse, biased toward broad
+  and rare class coverage, and never uses predictions. Tiny overfit therefore
+  uses all four selected images.
+- `qualitative_every_epochs: 1` records those fixed train/development views at
+  every epoch. Increase it only when deliberately trading temporal resolution
+  for less diagnostic I/O; development capture reuses the existing evaluation
+  pass, while train capture adds at most ten unaugmented forward passes.
 - `class_weighting: inverse_sqrt` computes weights only from the selected
   training pixels for a smoke run and from the complete training manifest for
   a full run.
 - `evaluation` controls held-out metrics. `bootstrap_samples` and
   `calibration_bins` are statistical reporting settings; they do not fit a
-  temperature.
+  temperature. `qualitative_samples: 10` controls the fixed views captured by
+  an explicit later `evaluate` command during its existing inference pass.
 - `resume: null`, `class_weights: null`, and
   `early_stopping_patience: null` state that those optional behaviors are off.
 
@@ -77,7 +89,7 @@ evaluate   freeze everything; measure calibrated probabilities on
 ```
 
 Calibration is performed only after the final server-trained model is frozen;
-see [evaluation and calibration](../../docs/08_evaluation_and_calibration.md).
+see [server evaluation and calibration](../../docs/09_server_evaluation_and_calibration.md).
 
 ## Run artifacts
 
@@ -88,7 +100,19 @@ host-specific `paths.runs_root`, normally:
 ~/hm3d-semseg-data/runs/<run_name>/
 ```
 
+Concrete current examples are
+`/home/joaocb2002/hm3d-semseg-data/runs/overfit_tiny/` on the workstation and
+`/workspace/runs/segformer_b2_baseline/` plus
+`/workspace/runs/segformer_b2_moderately_balanced/` on `knuth`. If a name was
+already occupied, use the exact collision-safe suffixed directory printed by
+training.
+
 If that name exists, the allocator uses `-002`, `-003`, and so on. It never
 mixes a fresh run with previous artifacts. See
-[losses, metrics, and run artifacts](../../docs/losses_and_metrics.md) for the
+[losses, metrics, model selection, and artifacts](../../docs/reference_losses_metrics_and_artifacts.md) for the
 contents of each run directory.
+
+The primary human entry point after a run is
+`<actual_run_directory>/report/index.html`. The report is generated
+automatically and can be safely rebuilt from raw artifacts with
+`hm3d-semseg report-run --run <actual_run_directory>`.

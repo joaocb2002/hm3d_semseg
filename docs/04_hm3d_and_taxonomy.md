@@ -2,7 +2,7 @@
 
 **Execution location: workstation in the `habitat` environment.** The audited
 mapping and frozen scene lists are checked repository inputs; rendered semantic
-decisions are preserved inside the datasets transferred in step 06a.
+decisions are preserved inside the datasets transferred in step 7.
 
 Semantic observations contain scene-specific object IDs, not MPCAT40 IDs. The
 pipeline is:
@@ -33,6 +33,17 @@ hm3d-semseg inspect-scene \
   --output /absolute/generated/root/inspection/TEEsavR23oF
 ```
 
+Current workstation form:
+
+```bash
+hm3d-semseg inspect-scene \
+  --local-config configs/local.yaml \
+  --split minival \
+  --scene-id 00800-TEEsavR23oF \
+  --num-views 4 \
+  --output /home/joaocb2002/hm3d-semseg-data/generated/inspection/TEEsavR23oF
+```
+
 Success means RGB, raw-ID colors, lossless class masks, color masks, depth,
 overlays, histograms, and semantic-ID decisions are meaningful and aligned.
 
@@ -43,6 +54,15 @@ hm3d-semseg audit-taxonomy \
   --local-config configs/local.yaml \
   --split minival \
   --output /absolute/generated/root/audits/minival
+```
+
+Current workstation form:
+
+```bash
+hm3d-semseg audit-taxonomy \
+  --local-config configs/local.yaml \
+  --split minival \
+  --output /home/joaocb2002/hm3d-semseg-data/generated/audits/minival
 ```
 
 Review `raw_label_decisions`, zero-support classes, ObjectNav-six support, and

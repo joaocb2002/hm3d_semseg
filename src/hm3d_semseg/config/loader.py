@@ -228,6 +228,10 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError(
             "training.evaluate_train_subset requires training.max_train_samples"
         )
+    if config.training.qualitative_samples <= 0:
+        raise ConfigurationError("training.qualitative_samples must be positive")
+    if config.training.qualitative_every_epochs <= 0:
+        raise ConfigurationError("training.qualitative_every_epochs must be positive")
     if not re.fullmatch(r"(auto|cpu|cuda(?::\d+)?)", config.training.device.lower()):
         raise ConfigurationError("training.device must be auto, cpu, cuda, or cuda:N")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", config.training.run_name):
@@ -250,6 +254,8 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError("training.early_stopping_patience must be positive")
     if config.evaluation.bootstrap_samples <= 0:
         raise ConfigurationError("evaluation.bootstrap_samples must be positive")
+    if config.evaluation.qualitative_samples <= 0:
+        raise ConfigurationError("evaluation.qualitative_samples must be positive")
     if config.evaluation.calibration_bins <= 0:
         raise ConfigurationError("evaluation.calibration_bins must be positive")
 

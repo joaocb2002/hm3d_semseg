@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -17,72 +18,101 @@ def load_training_records(metrics_path: Path) -> List[Dict[str, Any]]:
 
 
 def summarize_training_metrics(metrics_path: Path) -> Dict[str, Any]:
-    """Produce a human-sized digest while leaving step-level JSONL authoritative."""
-    records = load_training_records(metrics_path)
-    steps = [item for item in records if item.get("kind") == "train_step"]
-    epochs = [item for item in records if item.get("kind") == "train_epoch"]
-    development = [item for item in records if item.get("kind") == "development_epoch"]
-    early_stopping = [item for item in records if item.get("kind") == "early_stopping"]
-
-    total_step_seconds = sum(float(item.get("step_seconds", 0.0)) for item in steps)
-    processed_samples = sum(
-        float(
-            item.get(
-                "samples",
-                float(item.get("samples_per_second", 0.0))
-                * float(item.get("step_seconds", 0.0)),
-            )
-        )
-        for item in steps
-    )
-    gpu_peaks = [
-        int(item["gpu_peak_memory_bytes"])
-        for item in steps
-        if item.get("gpu_peak_memory_bytes") is not None
-    ]
-    gradient_norms = [float(item["gradient_norm"]) for item in steps]
+    """Produce a human-sized digest without retaining step records in memory."""
+    step_count = 0
+    step_loss: Dict[str, Any] = {"initial": None, "final": None, "minimum": None}
+    epochs: List[Dict[str, Any]] = []
+    development: List[Dict[str, Any]] = []
+    early_stopping: Optional[Dict[str, Any]] = None
+    total_step_seconds = 0.0
+    processed_samples = 0.0
+    peak_gpu_memory: Optional[int] = None
+    initial_learning_rates: List[float] = []
+    final_learning_rates: List[float] = []
+    maximum_finite_gradient: Optional[float] = None
+    final_gradient: Optional[float] = None
+    nonfinite_gradients = 0
+    skipped_optimizer_steps = 0
+    with metrics_path.open("r", encoding="utf-8") as handle:
+        for line in handle:
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            kind = item.get("kind")
+            if kind == "train_step":
+                step_count += 1
+                loss = float(item["loss"])
+                position = int(item["step"])
+                if step_loss["initial"] is None:
+                    step_loss["initial"] = loss
+                    initial_learning_rates = [
+                        float(value) for value in item.get("learning_rates", [])
+                    ]
+                step_loss["final"] = loss
+                minimum = step_loss["minimum"]
+                if minimum is None or loss < float(minimum["value"]):
+                    step_loss["minimum"] = {"step": position, "value": loss}
+                final_learning_rates = [
+                    float(value) for value in item.get("learning_rates", [])
+                ]
+                seconds = float(item.get("step_seconds", 0.0))
+                total_step_seconds += seconds
+                processed_samples += float(
+                    item.get(
+                        "samples",
+                        float(item.get("samples_per_second", 0.0)) * seconds,
+                    )
+                )
+                memory = item.get("gpu_peak_memory_bytes")
+                if memory is not None:
+                    peak_gpu_memory = max(peak_gpu_memory or 0, int(memory))
+                gradient = float(item["gradient_norm"])
+                final_gradient = gradient
+                if math.isfinite(gradient):
+                    maximum_finite_gradient = max(maximum_finite_gradient or gradient, gradient)
+                else:
+                    nonfinite_gradients += 1
+                skipped_optimizer_steps += int(bool(item.get("optimizer_step_skipped", False)))
+            elif kind == "train_epoch":
+                epochs.append(item)
+            elif kind == "development_epoch":
+                development.append(item)
+            elif kind == "early_stopping":
+                early_stopping = item
 
     result: Dict[str, Any] = {
         "schema_version": "1.0",
         "source": str(metrics_path.resolve()),
         "training": {
-            "optimizer_steps_recorded": len(steps),
+            "optimizer_steps_recorded": step_count,
             "epochs_recorded": len(epochs),
-            "step_cross_entropy": _series_summary(steps, "loss", "step"),
+            "step_cross_entropy": step_loss,
             "epoch_cross_entropy": _series_summary(epochs, "loss", "epoch"),
             "epoch_cross_entropy_history": [
-                {"epoch": int(item["epoch"]), "value": float(item["loss"])}
-                for item in epochs
+                {"epoch": int(item["epoch"]), "value": float(item["loss"])} for item in epochs
             ],
             "gradient_norm": {
-                "final": gradient_norms[-1] if gradient_norms else None,
-                "maximum": max(gradient_norms) if gradient_norms else None,
+                "final": final_gradient,
+                "maximum": maximum_finite_gradient,
+                "nonfinite_count": nonfinite_gradients,
+                "nonfinite_fraction": (
+                    nonfinite_gradients / step_count if step_count else None
+                ),
             },
             "optimization": {
                 "total_step_seconds": total_step_seconds,
-                "mean_step_seconds": (
-                    total_step_seconds / len(steps) if steps else None
-                ),
+                "mean_step_seconds": (total_step_seconds / step_count if step_count else None),
                 "overall_samples_per_second": (
-                    processed_samples / total_step_seconds
-                    if total_step_seconds > 0.0
-                    else None
+                    processed_samples / total_step_seconds if total_step_seconds > 0.0 else None
                 ),
-                "peak_gpu_memory_bytes": max(gpu_peaks) if gpu_peaks else None,
-                "initial_learning_rates": (
-                    [float(value) for value in steps[0]["learning_rates"]]
-                    if steps
-                    else []
-                ),
-                "final_learning_rates": (
-                    [float(value) for value in steps[-1]["learning_rates"]]
-                    if steps
-                    else []
-                ),
+                "peak_gpu_memory_bytes": peak_gpu_memory,
+                "initial_learning_rates": initial_learning_rates,
+                "final_learning_rates": final_learning_rates,
+                "optimizer_steps_skipped": skipped_optimizer_steps,
             },
         },
         "development": _development_summary(development),
-        "early_stopping": early_stopping[-1] if early_stopping else None,
+        "early_stopping": early_stopping,
     }
     return result
 
@@ -109,9 +139,7 @@ def _development_summary(records: List[Dict[str, Any]]) -> Optional[Dict[str, An
     losses = [item for item in records if item.get("loss") is not None]
     mious = [item for item in records if item.get("known_class_miou") is not None]
     best_loss = min(losses, key=lambda item: float(item["loss"])) if losses else None
-    best_miou = (
-        max(mious, key=lambda item: float(item["known_class_miou"])) if mious else None
-    )
+    best_miou = max(mious, key=lambda item: float(item["known_class_miou"])) if mious else None
     return {
         "evaluations_recorded": len(records),
         "history": [
@@ -125,15 +153,19 @@ def _development_summary(records: List[Dict[str, Any]]) -> Optional[Dict[str, An
                     if item.get("known_class_miou") is not None
                     else None
                 ),
+                "overall_pixel_accuracy": _optional_number(item.get("overall_pixel_accuracy")),
+                "objectnav_six_miou": _optional_number(item.get("objectnav_six_miou")),
+                "scene_macro_mean_miou": _optional_number(item.get("scene_macro_mean_miou")),
+                "nll": _optional_number(item.get("nll")),
+                "ece": _optional_number(item.get("ece")),
+                "multiclass_brier": _optional_number(item.get("multiclass_brier")),
             }
             for item in records
         ],
         "final": {
             "epoch": int(records[-1]["epoch"]),
             "mean_cross_entropy_loss": (
-                float(records[-1]["loss"])
-                if records[-1].get("loss") is not None
-                else None
+                float(records[-1]["loss"]) if records[-1].get("loss") is not None else None
             ),
             "known_class_miou": (
                 float(records[-1]["known_class_miou"])
@@ -155,3 +187,7 @@ def _development_summary(records: List[Dict[str, Any]]) -> Optional[Dict[str, An
             else None
         ),
     }
+
+
+def _optional_number(value: Any) -> Optional[float]:
+    return float(value) if value is not None else None

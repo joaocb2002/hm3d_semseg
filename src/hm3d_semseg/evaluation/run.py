@@ -14,6 +14,11 @@ from hm3d_semseg.camera.profile import CameraProfile, assert_camera_compatible
 from hm3d_semseg.config.schema import ProjectConfig
 from hm3d_semseg.data.dataset import OfflineSegmentationDataset
 from hm3d_semseg.data.validate import validate_dataset
+from hm3d_semseg.diagnostics.qualitative import (
+    append_qualitative_epoch,
+    save_contact_sheet,
+    save_qualitative_prediction,
+)
 from hm3d_semseg.evaluation.confusion import StreamingConfusionMatrix
 from hm3d_semseg.evaluation.metrics import bootstrap_scene_metric, metrics_from_confusion
 from hm3d_semseg.evaluation.plots import save_evaluation_plots
@@ -31,6 +36,9 @@ def evaluate_model(
     temperature: float = 1.0,
     device: Optional[str] = None,
     sample_ids: Optional[Sequence[str]] = None,
+    qualitative_sample_ids: Optional[Sequence[str]] = None,
+    qualitative_output: Optional[Path] = None,
+    qualitative_epoch: Optional[int] = None,
 ) -> Dict[str, Any]:
     import torch
     from torch.utils.data import DataLoader
@@ -70,6 +78,25 @@ def evaluate_model(
     scene_confusions: Dict[str, StreamingConfusionMatrix] = defaultdict(
         StreamingConfusionMatrix
     )
+    qualitative_ids = set(qualitative_sample_ids or [])
+    if bool(qualitative_ids) != bool(qualitative_output is not None):
+        raise ValueError(
+            "qualitative_sample_ids and qualitative_output must be provided together"
+        )
+    if qualitative_ids and qualitative_epoch is None:
+        raise ValueError("qualitative_epoch is required for qualitative output")
+    qualitative_records = {
+        record.sample_id: record
+        for record in dataset.records
+        if record.sample_id in qualitative_ids
+    }
+    missing_qualitative = qualitative_ids - set(qualitative_records)
+    if missing_qualitative:
+        raise ValueError(
+            "Qualitative sample IDs are outside this evaluation scope: "
+            + ", ".join(sorted(missing_qualitative)[:10])
+        )
+    qualitative_reports = []
     loss_sum = 0.0
     valid_pixels = 0
     with torch.inference_mode():
@@ -96,6 +123,22 @@ def evaluate_model(
             calibration_metrics.update(result.probabilities, labels)
             for item, scene_id in enumerate(batch["scene_id"]):
                 scene_confusions[str(scene_id)].update(result.labels[item], labels[item])
+                sample_id = str(batch["sample_id"][item])
+                if sample_id in qualitative_records:
+                    assert qualitative_output is not None
+                    assert qualitative_epoch is not None
+                    qualitative_reports.append(
+                        save_qualitative_prediction(
+                            dataset_root=dataset.root,
+                            record=qualitative_records[sample_id],
+                            target=labels[item].cpu().numpy(),
+                            prediction=result.labels[item].to(torch.uint8).cpu().numpy(),
+                            confidence=result.confidence[item].float().cpu().numpy(),
+                            output=qualitative_output,
+                            epoch=qualitative_epoch,
+                            ignore_index=config.taxonomy.ignore_index,
+                        )
+                    )
     global_metrics = metrics_from_confusion(confusion.matrix)
     scene_metrics: Dict[str, Optional[float]] = {}
     for scene_id, accumulator in sorted(scene_confusions.items()):
@@ -106,6 +149,23 @@ def evaluate_model(
         config.evaluation.bootstrap_samples,
         config.evaluation.bootstrap_seed,
     )
+    qualitative_summary = None
+    if qualitative_reports:
+        assert qualitative_output is not None
+        assert qualitative_epoch is not None
+        order = {
+            sample_id: index for index, sample_id in enumerate(qualitative_sample_ids or [])
+        }
+        qualitative_reports.sort(key=lambda item: order[item["sample_id"]])
+        contact_sheet = save_contact_sheet(
+            qualitative_output, qualitative_reports, epoch=qualitative_epoch
+        )
+        qualitative_summary = {
+            "epoch": qualitative_epoch,
+            "samples": qualitative_reports,
+            "contact_sheet": str(contact_sheet.relative_to(qualitative_output)),
+        }
+        append_qualitative_epoch(qualitative_output, qualitative_summary)
     report = {
         "checkpoint": str(checkpoint.resolve()),
         "dataset": str(dataset_root.resolve()),
@@ -126,6 +186,7 @@ def evaluate_model(
             "bootstrap_samples": config.evaluation.bootstrap_samples,
         },
         "probability_quality": calibration_metrics.compute(),
+        "qualitative": qualitative_summary,
     }
     output.mkdir(parents=True, exist_ok=True)
     atomic_write_json(output / "summary.json", report)

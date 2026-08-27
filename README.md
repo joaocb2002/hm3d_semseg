@@ -112,6 +112,14 @@ ruff check .
 mypy src
 ```
 
+Current workstation camera command:
+
+```bash
+hm3d-semseg resolve-camera \
+  --local-config configs/local.yaml \
+  --output /home/joaocb2002/hm3d-semseg-data/generated/camera/objectnav_resolved.yaml
+```
+
 Do not continue to full generation until the printed camera values match the
 camera used by the ObjectNav agent and pitch values have been chosen explicitly.
 
@@ -136,39 +144,43 @@ model and auto-selects the working GPU with the most free memory.
 
 ## Workflow
 
-Follow the numbered guide in order:
+The [documentation index](docs/README.md) is the execution interface. Follow
+its ten stages in order:
 
-1. [Installation](docs/01_installation.md)
-2. [Paths and configuration](docs/02_paths_and_configuration.md)
-3. [Camera contract](docs/03_camera_contract.md)
-4. [HM3D and taxonomy](docs/04_hm3d_and_taxonomy.md)
-5. [Sampling and generation](docs/05_sampling_and_generation.md)
-6. [Dataset format](docs/06_dataset_format.md)
-6a. [Workstation-to-server handoff and return](docs/06a_server_handoff.md)
-7. [Training](docs/07_training.md)
-8. [Evaluation and calibration](docs/08_evaluation_and_calibration.md)
-9. [Inference and ObjectNav integration](docs/09_inference_and_objectnav_integration.md)
-10. [Testing](docs/10_testing.md)
-11. [Troubleshooting](docs/11_troubleshooting.md)
-12. [CLI reference](docs/12_cli_reference.md)
+1. [Install the environments](docs/01_installation.md)
+2. [Configure workstation paths](docs/02_paths_and_configuration.md)
+3. [Freeze the camera contract](docs/03_camera_contract.md)
+4. [Audit HM3D and the taxonomy](docs/04_hm3d_and_taxonomy.md)
+5. [Render the six datasets](docs/05_sampling_and_generation.md)
+6. [Validate the dataset contract](docs/06_dataset_format.md)
+7. [Move from workstation to GPU server](docs/07_workstation_to_server.md)
+8. [Develop and refit the model](docs/08_server_training.md)
+9. [Evaluate and calibrate the final model](docs/09_server_evaluation_and_calibration.md)
+10. [Return artifacts and integrate with ObjectNav](docs/10_return_and_objectnav.md)
 
-Reference: [losses, metrics, and run artifacts](docs/losses_and_metrics.md).
+Supporting references:
+
+- [Losses, metrics, model selection, and artifacts](docs/reference_losses_metrics_and_artifacts.md)
+- [Testing and quality gates](docs/reference_testing.md)
+- [Troubleshooting](docs/reference_troubleshooting.md)
+- [CLI](docs/reference_cli.md)
 
 The machine boundary is deliberate: resolve the ObjectNav camera and render
 licensed HM3D data in the Habitat workstation environment; transfer complete,
 validated offline dataset directories to a host-matched single-GPU training
 environment; then return the complete final run and calibrated checkpoint for
 local verification and ObjectNav deployment. Never transfer an uncommitted
-working tree or deploy a loose `model.safetensors` file. The handoff guide lists
-the exact portable artifacts, integrity checks, server acceptance test,
-scheduler workflow, final-protocol boundary, and return procedure.
+working tree or deploy a loose `model.safetensors` file. Steps 7--10 separately
+own transfer/server acceptance, training, final evaluation/calibration, and
+return/deployment, so the reader never has to jump back to an earlier handoff
+document.
 
 At the end, the workstation owns two linked but separate records:
 
 ```text
-~/projects/hm3d-semseg/                         # exact Git source revision
-~/hm3d-semseg-data/runs/server/<final-run>/     # returned research artifacts
-└── checkpoints/calibrated/                     # ObjectNav deployment input
+/home/joaocb2002/projects/hm3d-semseg/                             # exact Git source
+/home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final/  # planned final run
+└── checkpoints/calibrated/                                        # deployment input
 ```
 
 The complete execution sequence is: install; configure local paths; run
@@ -182,6 +194,12 @@ recipes on development; freeze the recipe; train on all 145 scenes; evaluate
 the fixed 36-scene official validation set; calibrate on disjoint scenes; return
 and checksum the complete run; verify inference locally; integrate through the
 Python API; benchmark the actual ObjectNav host.
+
+After every `train` command, open the collision-safe run directory's
+`report/index.html`. It is the human-facing dashboard; raw JSON/JSONL,
+confusion arrays, checkpoints, and provenance remain the reproducible source
+record. Use `hm3d-semseg compare-runs` for the baseline-versus-balanced
+development decision instead of manually aligning many epoch directories.
 
 ## Known limitations
 

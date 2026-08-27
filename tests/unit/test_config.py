@@ -49,11 +49,14 @@ def test_development_smoke_recipes_are_bounded_and_scene_diverse(
     assert config.training.sample_selection == "scene_diverse"
     assert config.training.development_sample_selection == "scene_diverse"
     assert config.training.evaluate_train_subset is False
+    assert config.training.qualitative_samples == 10
+    assert config.training.qualitative_every_epochs == 1
     assert config.training.deterministic_algorithms is False
     assert config.training.epochs == 10
     assert config.training.class_weighting == weighting
     assert config.training.train_dataset == generated / "train-v1"
     assert config.training.development_dataset == generated / "development-v1"
+    assert config.evaluation.qualitative_samples == 10
 
 
 def test_tiny_overfit_explicitly_disables_development_dataset() -> None:
@@ -110,10 +113,16 @@ def test_weighting_and_warmup_are_validated() -> None:
         )
     with pytest.raises(ConfigurationError, match=r"training\.evaluate_train_subset"):
         load_config(cli_overrides={"training": {"evaluate_train_subset": True}})
+    with pytest.raises(ConfigurationError, match=r"training\.qualitative_samples"):
+        load_config(cli_overrides={"training": {"qualitative_samples": 0}})
+    with pytest.raises(ConfigurationError, match=r"training\.qualitative_every_epochs"):
+        load_config(cli_overrides={"training": {"qualitative_every_epochs": 0}})
     with pytest.raises(ConfigurationError, match=r"training\.run_name"):
         load_config(cli_overrides={"training": {"run_name": "../outside"}})
     with pytest.raises(ConfigurationError, match=r"evaluation\.bootstrap_samples"):
         load_config(cli_overrides={"evaluation": {"bootstrap_samples": 0}})
+    with pytest.raises(ConfigurationError, match=r"evaluation\.qualitative_samples"):
+        load_config(cli_overrides={"evaluation": {"qualitative_samples": 0}})
     with pytest.raises(ConfigurationError, match=r"evaluation\.calibration_bins"):
         load_config(cli_overrides={"evaluation": {"calibration_bins": 0}})
 

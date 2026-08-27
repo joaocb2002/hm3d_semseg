@@ -17,6 +17,8 @@ training:
   sample_selection: scene_diverse
   development_sample_selection: scene_diverse
   evaluate_train_subset: false
+  qualitative_samples: 10
+  qualitative_every_epochs: 1
   run_name: segformer_b2_moderately_balanced
   epochs: 20
   batch_size: 2
@@ -42,6 +44,7 @@ augmentation:
 evaluation:
   batch_size: 1
   workers: 2
+  qualitative_samples: 10
   bootstrap_seed: 2027
   bootstrap_samples: 1000
   calibration_bins: 15

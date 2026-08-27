@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import typer
 
@@ -16,10 +16,16 @@ from hm3d_semseg.camera.resolve import resolve_camera_profile
 from hm3d_semseg.config.loader import load_config
 from hm3d_semseg.data.generate import generate_dataset as run_generation
 from hm3d_semseg.data.progress import DatasetGenerationProgress
+from hm3d_semseg.data.schema import load_manifest
 from hm3d_semseg.data.splits import make_calibration_split, make_development_split
 from hm3d_semseg.data.validate import validate_dataset as run_dataset_validation
+from hm3d_semseg.diagnostics.qualitative import (
+    select_qualitative_records,
+    selection_report,
+)
 from hm3d_semseg.diagnostics.smoke import run_smoke_test
 from hm3d_semseg.evaluation.benchmark import benchmark_inference
+from hm3d_semseg.evaluation.reporting import generate_evaluation_report
 from hm3d_semseg.evaluation.run import evaluate_model
 from hm3d_semseg.exceptions import HM3DSemsegError
 from hm3d_semseg.inference.api import SemanticSegmenter
@@ -27,6 +33,7 @@ from hm3d_semseg.installation.training_env import install_training_environment
 from hm3d_semseg.models.segformer import download_model as run_model_download
 from hm3d_semseg.scenes.inspect import inspect_scene as run_scene_inspection
 from hm3d_semseg.training.loop import train as run_training
+from hm3d_semseg.training.report import compare_training_runs, generate_training_report
 from hm3d_semseg.utils.hashing import atomic_write_json
 
 app = typer.Typer(
@@ -254,6 +261,23 @@ def train(
     )
 
 
+@app.command("report-run")
+def report_run(
+    run: Path = typer.Option(..., "--run", exists=True, file_okay=False),
+) -> None:
+    """Build or refresh a static human-readable report from one run directory."""
+    _print(generate_training_report(run))
+
+
+@app.command("compare-runs")
+def compare_runs(
+    runs: List[Path] = typer.Option(..., "--run", exists=True, file_okay=False),
+    output: Path = typer.Option(..., "--output"),
+) -> None:
+    """Compare held-out results from two or more protocol-compatible runs."""
+    _print(compare_training_runs(runs, output))
+
+
 @app.command()
 def evaluate(
     checkpoint: Path = typer.Option(..., "--checkpoint", exists=True, file_okay=False),
@@ -266,16 +290,35 @@ def evaluate(
 ) -> None:
     """Evaluate global, scene-macro, ObjectNav-six, and probability metrics."""
     resolved = load_config(command_config=config, local_config=local_config)
-    _print(
-        evaluate_model(
-            checkpoint,
-            dataset,
-            output,
-            resolved,
-            temperature=temperature,
-            device=device,
-        )
+    qualitative_records = select_qualitative_records(
+        load_manifest(dataset / "manifest.jsonl"),
+        resolved.evaluation.qualitative_samples,
+        seed=resolved.evaluation.bootstrap_seed,
     )
+    qualitative_output = output / "qualitative"
+    atomic_write_json(
+        qualitative_output / "selection.json",
+        selection_report(
+            [],
+            [],
+            seed=resolved.evaluation.bootstrap_seed,
+            requested_per_split=resolved.evaluation.qualitative_samples,
+            evaluation_records=qualitative_records,
+        ),
+    )
+    result = evaluate_model(
+        checkpoint,
+        dataset,
+        output,
+        resolved,
+        temperature=temperature,
+        device=device,
+        qualitative_sample_ids=[record.sample_id for record in qualitative_records],
+        qualitative_output=qualitative_output,
+        qualitative_epoch=0,
+    )
+    result["human_report"] = generate_evaluation_report(output)["report"]
+    _print(result)
 
 
 @app.command()

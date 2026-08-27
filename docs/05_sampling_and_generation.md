@@ -240,10 +240,56 @@ rendered directory—not the HM3D source tree—is the portable handoff to train
 Keep every root-level manifest, configuration, provenance, and camera file with
 its scene directories.
 
-After validating these two roots in step 06, step 06a completes Stage B by
-rendering and validating `train-all-v1`, `official-val-v1`,
-`calibration-fit-v1`, and `calibration-evaluation-v1`. Keeping the stages
-separate makes it possible to prove the 130/15 development pipeline first;
-rendering all six before the first server transfer avoids a second handoff.
+## Stage B: render the final-protocol datasets
+
+Only after the 130/15 development protocol is frozen, render a fresh all-scenes
+training root and the official/calibration roots. `train-all-v1` is not a file
+concatenation of the two Stage-A directories: it is a fresh uniform render of
+all 145 official training scenes.
+
+Add `--dry-run` to each command first and inspect the planned root, scene count,
+sample bound, and storage estimate. Then run the commands without `--dry-run`:
+
+```bash
+hm3d-semseg generate-dataset \
+  --config configs/data/train.yaml \
+  --local-config configs/local.yaml \
+  --dataset-name train-all-v1
+
+hm3d-semseg generate-dataset \
+  --config configs/data/validation.yaml \
+  --local-config configs/local.yaml \
+  --official-split val
+
+hm3d-semseg generate-dataset \
+  --config configs/data/validation.yaml \
+  --local-config configs/local.yaml \
+  --official-split val \
+  --dataset-name calibration-fit-v1 \
+  --split-list configs/data/splits/calibration_fit.txt
+
+hm3d-semseg generate-dataset \
+  --config configs/data/validation.yaml \
+  --local-config configs/local.yaml \
+  --official-split val \
+  --dataset-name calibration-evaluation-v1 \
+  --split-list configs/data/splits/calibration_evaluation.txt
+```
+
+For the current workstation these commands create:
+
+```text
+/home/joaocb2002/hm3d-semseg-data/generated/train-all-v1
+/home/joaocb2002/hm3d-semseg-data/generated/official-val-v1
+/home/joaocb2002/hm3d-semseg-data/generated/calibration-fit-v1
+/home/joaocb2002/hm3d-semseg-data/generated/calibration-evaluation-v1
+```
+
+The calibration scene lists are checked protocol inputs. Do not regenerate or
+edit them during an ordinary run. Rendering calibration images does not fit a
+temperature; calibration happens only after final model training in step 9.
+
+At the end of this stage all six portable roots exist. Step 6 validates them
+before a single workstation-to-server transfer.
 
 Next: [dataset format](06_dataset_format.md).

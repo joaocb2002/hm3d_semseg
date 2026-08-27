@@ -2,7 +2,7 @@
 
 **Execution location: workstation.** This `configs/local.yaml` describes local
 Habitat assets and local data roots. It is ignored by Git and must not be copied
-to the server; step 06a creates a separate server-local file with server paths.
+to the server; step 7 creates a separate server-local file with server paths.
 
 Configuration is strict. Unknown keys fail. Precedence is CLI overrides, then
 `configs/local.yaml`, then the command/experiment YAML, then dataclass defaults.
