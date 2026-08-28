@@ -13,13 +13,16 @@ training experiments over already-generated datasets.
 | Config | Train data | Development data | Epochs | Weighting | Purpose |
 |---|---:|---:|---:|---|---|
 | `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 | none | Verify memorization and training mechanics. |
-| `segformer_b2_baseline_smoke.yaml` | 512 from `train-v1` | 256 from `development-v1` | 10 | none | Exercise baseline training and held-out metrics locally. |
-| `segformer_b2_moderately_balanced_smoke.yaml` | 512 from `train-v1` | 256 from `development-v1` | 10 | inverse square root | Exercise class-weight computation and the balanced path locally. |
+| `segformer_b2_baseline_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 | none | Exercise baseline training and held-out metrics locally. |
+| `segformer_b2_moderately_balanced_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 | inverse square root | Exercise class-weight computation and the balanced path locally. |
 | `segformer_b2_baseline.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | 20 | none | Full recipe-development candidate on the server. |
 | `segformer_b2_moderately_balanced.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | 20 | inverse square root | Full recipe-development candidate on the server. |
 
 The smoke runs are integration tests, not evidence for choosing the final
-recipe. Their small subsets can give noisy and biased metrics.
+recipe. Their small subsets can give noisy and biased metrics. The 1,024-image
+training limit gives the scene-diverse selector more views while remaining a
+bounded workstation acceptance run; it approximately doubles the training
+portion relative to the earlier 512-image smoke recipe.
 
 In this table, **all `train-v1` does not mean `train-all-v1`**. The names refer
 to different dataset roots and different protocol stages:

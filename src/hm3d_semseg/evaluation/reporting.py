@@ -78,6 +78,7 @@ def generate_evaluation_report(output: Path) -> Dict[str, Any]:
         "scenes": summary.get("evaluation_scenes"),
         "temperature": summary.get("temperature"),
         "headline": headline,
+        "metric_scope_guide": _metric_scope_guide(),
         "top_confusions": confusions,
         "qualitative": summary.get("qualitative"),
     }
@@ -167,12 +168,152 @@ def _markdown(report: Dict[str, Any]) -> str:
     lines.extend(
         [
             "",
+            "## How metrics are aggregated",
+            "",
+            "| Reported value | Exact aggregation | Equal-weight unit |",
+            "|---|---|---|",
+        ]
+    )
+    lines.extend(
+        "| "
+        + " | ".join(
+            str(row[key]).replace("|", "\\|")
+            for key in ("reported_value", "calculation_order", "equal_weight_unit")
+        )
+        + " |"
+        for row in report["metric_scope_guide"]
+    )
+    lines.extend(
+        [
+            "",
             "Open [the HTML report](index.html) for plots, sortable tables, and "
             "qualitative views.",
             "",
         ]
     )
     return "\n".join(lines)
+
+
+def _metric_scope_guide() -> List[Dict[str, str]]:
+    return [
+        {
+            "reported_value": "Global pixel accuracy",
+            "calculation_order": (
+                "Pool all valid pixels from every evaluated frame and scene, then "
+                "divide total correct pixels by total valid pixels."
+            ),
+            "equal_weight_unit": "Valid pixel, including class 0; target 255 is ignored.",
+        },
+        {
+            "reported_value": "Global known-class mIoU",
+            "calculation_order": (
+                "Pool all pixels first, compute IoU per ground-truth-present known "
+                "class 1-40, then mean those class IoUs."
+            ),
+            "equal_weight_unit": "Present known class; not image or scene.",
+        },
+        {
+            "reported_value": "Global per-class IoU",
+            "calculation_order": (
+                "For one class, pool TP, FP, and FN across every frame and scene, then "
+                "compute TP / (TP + FP + FN)."
+            ),
+            "equal_weight_unit": "No second average: one pooled value for that class.",
+        },
+        {
+            "reported_value": "Per-scene known-class mIoU",
+            "calculation_order": (
+                "Within one scene, pool all its frames, compute IoU per present known "
+                "class, then mean those class IoUs."
+            ),
+            "equal_weight_unit": "Present known class within that scene.",
+        },
+        {
+            "reported_value": "Scene-macro known-class mIoU",
+            "calculation_order": (
+                "Compute every per-scene known-class mIoU first, then take their "
+                "arithmetic mean."
+            ),
+            "equal_weight_unit": "Scene; deliberately an average of per-scene averages.",
+        },
+        {
+            "reported_value": "Unscaled evaluation cross-entropy",
+            "calculation_order": (
+                "Apply unweighted cross-entropy to the raw model logits before "
+                "temperature scaling, sum over valid pixels, then divide by their count."
+            ),
+            "equal_weight_unit": "Valid pixel; not image or scene.",
+        },
+        {
+            "reported_value": "Probability NLL",
+            "calculation_order": (
+                "Take negative log-probability of each true class after the report's "
+                "stated temperature, sum over valid pixels, then divide by their count."
+            ),
+            "equal_weight_unit": "Valid pixel; equals unscaled cross-entropy only at T=1.",
+        },
+    ]
+
+
+def _headline_cards(headline: Dict[str, Any]) -> str:
+    definitions = [
+        (
+            "Global known-class mIoU",
+            "known_class_miou",
+            "score",
+            "Pool all pixels → IoU per present known class → macro-average classes.",
+        ),
+        (
+            "Global pixel accuracy",
+            "overall_pixel_accuracy",
+            "score",
+            "Correct valid pixels / all valid pixels across the complete evaluation.",
+        ),
+        (
+            "Scene-macro known-class mIoU",
+            "scene_macro_mean_miou",
+            "score",
+            "One mIoU per scene, followed by an equal-weight mean over scenes.",
+        ),
+        (
+            "Global ObjectNav-six mIoU",
+            "objectnav_six_miou",
+            "score",
+            "Pooled pixels → IoU per present ObjectNav goal class → class mean.",
+        ),
+        (
+            "Unscaled cross-entropy",
+            "mean_cross_entropy_loss",
+            "loss",
+            "Raw-logit, unweighted cross-entropy averaged over valid pixels.",
+        ),
+        (
+            "Probability NLL",
+            "nll",
+            "loss",
+            "Negative log-likelihood after the report's stated temperature.",
+        ),
+        (
+            "Expected calibration error",
+            "ece",
+            "loss",
+            "Pixel confidence-versus-accuracy gap across configured confidence bins.",
+        ),
+    ]
+    cards = []
+    for name, key, kind, scope in definitions:
+        value = headline.get(key)
+        display = _format(value)
+        if kind == "score" and isinstance(value, (float, int)):
+            display = f"{100.0 * float(value):.2f}%"
+        cards.append(
+            '<article class="metric">'
+            f"<b>{html.escape(name)}</b>"
+            f'<div class="value">{html.escape(display)}</div>'
+            f'<div class="scope">{html.escape(scope)}</div>'
+            "</article>"
+        )
+    return '<div class="metric-grid">' + "".join(cards) + "</div>"
 
 
 def _html(
@@ -199,8 +340,10 @@ def _html(
     return """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width"><title>Evaluation report</title>
 <style>body{font:15px/1.5 system-ui;background:#f4f6f8;color:#18202a;margin:0}
-main{max-width:1280px;margin:auto;padding:28px}.card,figure{background:white;border:1px solid #d9dfe7;border-radius:10px;padding:15px;margin:15px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:15px}img{max-width:100%}.contact{width:100%}.table-wrap{overflow:auto;max-height:600px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:7px;border-bottom:1px solid #ddd;text-align:right;white-space:nowrap}th{position:sticky;top:0;background:#e8edf3}th:first-child,td:first-child{text-align:left}</style></head><body><main>""" + (
-        f"<h1>Evaluation report</h1><section class='card'><p><b>Checkpoint:</b> {html.escape(str(report['checkpoint']))}<br><b>Dataset:</b> {html.escape(str(report['dataset']))}<br><b>Scope:</b> {report['samples']} samples / {report['scenes']} scenes<br><b>Temperature:</b> {_format(report['temperature'])}</p>{_table([report['headline']])}</section>"
+main{max-width:1280px;margin:auto;padding:28px}.card,figure{background:white;border:1px solid #d9dfe7;border-radius:10px;padding:15px;margin:15px 0}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:15px}img{max-width:100%}.contact{width:100%}.table-wrap{overflow:auto;max-height:600px}table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:7px;border-bottom:1px solid #ddd;text-align:right;white-space:nowrap}th{position:sticky;top:0;background:#e8edf3}th:first-child,td:first-child{text-align:left}.metric-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.metric{background:white;border:1px solid #d9dfe7;border-radius:10px;padding:15px}.metric .value{font-size:1.7rem;font-weight:700;margin:.2rem 0}.metric .scope{font-size:.88rem;color:#52606d}.scope-table td{white-space:normal;vertical-align:top;text-align:left}</style></head><body><main>""" + (
+        f"<h1>Evaluation report</h1><section class='card'><p><b>Checkpoint:</b> {html.escape(str(report['checkpoint']))}<br><b>Dataset:</b> {html.escape(str(report['dataset']))}<br><b>Evaluation scope:</b> {report['samples']} samples across {report['scenes']} scenes<br><b>Temperature:</b> {_format(report['temperature'])}</p></section>"
+        f"<h2>Headline metrics</h2>{_headline_cards(report['headline'])}"
+        f"<section class='card scope-table'><h2>How these values are aggregated</h2><p><b>Global</b> means that valid pixels from every evaluated frame and scene are pooled before computing the metric. It is not an average of image scores. <b>Scene macro</b> gives every scene equal weight.</p><div class='table-wrap'>{_table(report['metric_scope_guide'])}</div></section>"
         f"<h2>Qualitative fixed set</h2><section class='card'>{qualitative_html}</section>"
         f"<h2>Plots</h2><section class='grid'>{plot_cards}</section>"
         f"<section class='card'><h2>ObjectNav six</h2><div class='table-wrap'>{_table(objectnav)}</div></section>"

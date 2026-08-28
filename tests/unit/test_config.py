@@ -44,7 +44,7 @@ def test_development_smoke_recipes_are_bounded_and_scene_diverse(
         command_config=_experiment(name),
         cli_overrides={"paths": {"generated_data_root": str(generated)}},
     )
-    assert config.training.max_train_samples == 512
+    assert config.training.max_train_samples == 1024
     assert config.training.max_development_samples == 256
     assert config.training.sample_selection == "scene_diverse"
     assert config.training.development_sample_selection == "scene_diverse"

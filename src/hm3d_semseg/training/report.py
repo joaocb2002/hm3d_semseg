@@ -120,12 +120,17 @@ def generate_training_report(run: Path) -> Dict[str, Any]:
         evaluations,
         qualitative,
     )
+    weighting = run_summary.get("class_weighting") or resolved.get("training", {}).get(
+        "class_weighting", "unknown"
+    )
     report_summary = {
         "schema_version": "1.0",
         "run": str(run),
         "run_name": run.name,
         "facts": facts,
         "warnings": warnings,
+        "headline_metrics": _headline_metrics(best_evaluation),
+        "metric_scope_guide": _metric_scope_guide(str(weighting)),
         "epoch_metrics": epoch_rows,
         "checkpoint_comparison": checkpoint_rows,
         "train_subset_evaluation": run_summary.get("train_subset_evaluation"),
@@ -422,6 +427,116 @@ def _checkpoint_rows(evaluations: Sequence[Tuple[int, Dict[str, Any]]]) -> List[
     return rows
 
 
+def _headline_metrics(
+    best_evaluation: Optional[Tuple[int, Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """Return the compact, explicitly scoped held-out metrics shown first."""
+    if best_evaluation is None:
+        return []
+    epoch, report = best_evaluation
+    return [
+        {
+            "metric": "Selected best epoch",
+            "value": epoch + 1,
+            "kind": "count",
+            "scope": "Epoch with the highest development global known-class mIoU.",
+        },
+        {
+            "metric": "Global known-class mIoU",
+            "value": report["global"].get("known_class_miou"),
+            "kind": "score",
+            "scope": "Pool all development pixels, compute IoU per present class 1-40, then macro-average classes.",
+        },
+        {
+            "metric": "Global pixel accuracy",
+            "value": report["global"].get("overall_pixel_accuracy"),
+            "kind": "score",
+            "scope": "Correct valid pixels divided by all valid pixels across every development frame and scene.",
+        },
+        {
+            "metric": "Scene-macro known-class mIoU",
+            "value": report["scene_macro"].get("mean"),
+            "kind": "score",
+            "scope": "Compute one known-class mIoU per scene, then give every scene equal weight in the mean.",
+        },
+        {
+            "metric": "Global ObjectNav-six mIoU",
+            "value": report["global"].get("objectnav_six_miou"),
+            "kind": "score",
+            "scope": "Pool all development pixels, then macro-average the present six ObjectNav goal classes.",
+        },
+        {
+            "metric": "Development cross-entropy",
+            "value": report.get("mean_cross_entropy_loss"),
+            "kind": "loss",
+            "scope": "Unweighted negative log-likelihood summed over all valid development pixels and divided by their count.",
+        },
+    ]
+
+
+def _metric_scope_guide(weighting: str) -> List[Dict[str, str]]:
+    """Explain every aggregation level without changing stored metric names."""
+    return [
+        {
+            "reported_value": "Training objective cross-entropy",
+            "calculation_order": (
+                "Compute the configured cross-entropy in each augmented training "
+                f"minibatch (class weighting: {weighting}), then mean the minibatch "
+                "losses within the epoch."
+            ),
+            "equal_weight_unit": "Training minibatch; this is the optimization objective.",
+        },
+        {
+            "reported_value": "Development cross-entropy / NLL",
+            "calculation_order": (
+                "Sum unweighted negative log-likelihood over every valid development "
+                "pixel, then divide once by the total valid-pixel count."
+            ),
+            "equal_weight_unit": "Valid pixel; not image or scene.",
+        },
+        {
+            "reported_value": "Global pixel accuracy",
+            "calculation_order": (
+                "Pool all valid pixels from all development frames and scenes into one "
+                "confusion matrix, then divide total correct by total pixels."
+            ),
+            "equal_weight_unit": "Valid pixel, including class 0; target 255 is ignored.",
+        },
+        {
+            "reported_value": "Global known-class mIoU",
+            "calculation_order": (
+                "Pool all development pixels first, compute one IoU for each "
+                "ground-truth-present known class 1-40, then mean those class IoUs."
+            ),
+            "equal_weight_unit": "Present known class; not image or scene.",
+        },
+        {
+            "reported_value": "Global per-class IoU",
+            "calculation_order": (
+                "For one class, pool its TP, FP, and FN across every development frame "
+                "and scene, then compute TP / (TP + FP + FN)."
+            ),
+            "equal_weight_unit": "No second average: one pooled value for that class.",
+        },
+        {
+            "reported_value": "Per-scene known-class mIoU",
+            "calculation_order": (
+                "Within one scene, pool all its evaluated frames, compute IoU per "
+                "present known class, then mean those class IoUs."
+            ),
+            "equal_weight_unit": "Present known class within that one scene.",
+        },
+        {
+            "reported_value": "Scene-macro known-class mIoU",
+            "calculation_order": (
+                "First compute every per-scene known-class mIoU as above, then take "
+                "their arithmetic mean."
+            ),
+            "equal_weight_unit": "Scene; deliberately an average of per-scene averages.",
+        },
+    ]
+
+
 def _facts_and_warnings(
     summary: Dict[str, Any],
     provenance: Dict[str, Any],
@@ -543,6 +658,27 @@ def _markdown_summary(report: Dict[str, Any], metrics: Dict[str, Any]) -> str:
         [f"- {value}" for value in report["warnings"]]
         or ["- No automatic warning was triggered."]
     )
+    lines.extend(["", "## Headline held-out metrics", ""])
+    if report["headline_metrics"]:
+        lines.append(_markdown_table(report["headline_metrics"]))
+    else:
+        lines.append(
+            "No development metrics exist. Any training-subset metrics measure "
+            "memorization, not held-out generalization."
+        )
+    lines.extend(
+        [
+            "",
+            "## How metrics are aggregated",
+            "",
+            "Except for values explicitly named `training`, all accuracy, IoU, "
+            "per-class, per-scene, and probability metrics in this report come "
+            "from the held-out development set. Normal recipe runs do not perform "
+            "a second full training-set evaluation.",
+            "",
+            _markdown_table(report["metric_scope_guide"]),
+        ]
+    )
     lines.extend(["", "## Checkpoint comparison", ""])
     if report["checkpoint_comparison"]:
         lines.append(_markdown_table(report["checkpoint_comparison"]))
@@ -584,6 +720,8 @@ def _html_report(
     epoch_table = _html_table(report["epoch_metrics"])
     per_class_table = _html_table(report["best_per_class"])
     confusion_table = _html_table(report["top_confusions"])
+    headline = _headline_html(report["headline_metrics"])
+    scope_table = _html_table(report["metric_scope_guide"])
     subset_table = _html_table(
         [report["train_subset_evaluation"]]
         if report["train_subset_evaluation"] is not None
@@ -607,17 +745,24 @@ table{{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}} t
 th{{position:sticky;top:0;background:#e8edf3;cursor:pointer}} th:first-child,td:first-child{{text-align:left}}
 code{{background:#edf1f5;padding:2px 5px;border-radius:4px}} .muted{{color:#617080}}
 .qual img{{width:100%;border:1px solid #ccd3dc}} input[type=range]{{width:min(600px,100%)}}
+.metric-grid{{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}}
+.metric{{background:white;border:1px solid #d9dfe7;border-radius:10px;padding:15px}}
+.metric .value{{font-size:1.7rem;font-weight:700;font-variant-numeric:tabular-nums;margin:.2rem 0}}
+.metric .scope{{font-size:.88rem;color:#52606d}}
+.scope-table td{{white-space:normal;vertical-align:top;text-align:left}}
 </style></head><body><main>
 <h1>Training report: {html.escape(report["run_name"])}</h1>
 <p class="muted">Derived presentation only. Raw JSON/JSONL, checkpoints, provenance, and evaluation artifacts are unchanged.</p>
 <section class="card"><h2>At a glance</h2><ul>{facts}</ul>
 <p><b>Device:</b> {html.escape(str(hardware))} · <b>Parameters:</b> {_format(trainable)} trainable / {_format(total)} total</p></section>
 <section class="card warning"><h2>Attention</h2><ul>{warnings or "<li>No automatic warning was triggered.</li>"}</ul></section>
+<section><h2>Best-checkpoint held-out metrics</h2>{headline}</section>
+<section class="card scope-table"><h2>How every headline value is aggregated</h2><p>Except for values explicitly labelled <b>training</b>, every accuracy, IoU, per-class, per-scene, and probability metric on this page comes from the held-out development set. Normal recipe runs do not perform a second full training-set evaluation.</p><p><b>Global</b> means one confusion matrix pooled over all selected development frames and scenes. It never means an average of image scores. <b>Scene macro</b> deliberately averages already-computed per-scene mIoUs.</p><div class="table-wrap">{scope_table}</div></section>
 <section class="card"><h2>Checkpoint comparison</h2><p>The best checkpoint is selected by development known-class mIoU when development data exists.</p><div class="table-wrap">{checkpoint_table}</div></section>
 <section class="card"><h2>Selected training-subset diagnostic</h2><p>This measures memorization, not held-out generalization.</p><div class="table-wrap">{subset_table}</div></section>
 <section><h2>Curves and diagnostics</h2><div class="grid">{plots}</div></section>
 {qualitative}
-<section class="card"><h2>Epoch metrics</h2><div class="table-wrap">{epoch_table}</div></section>
+<section class="card"><h2>Epoch metrics</h2><p>Only <b>training cross-entropy</b> is a training-set value. Every other populated metric column below is computed on development.</p><div class="table-wrap">{epoch_table}</div></section>
 <section class="card"><h2>Best-epoch per-class metrics</h2><div class="table-wrap">{per_class_table}</div></section>
 <section class="card"><h2>Largest best-epoch confusions</h2><p>Rows are true classes; columns are predicted classes.</p><div class="table-wrap">{confusion_table}</div></section>
 <section class="card"><h2>Machine-readable sources</h2><p><a href="../metrics.jsonl">metrics.jsonl</a> · <a href="../metrics_summary.json">metrics_summary.json</a> · <a href="../summary.json">run summary</a> · <a href="../provenance.json">provenance</a> · <a href="tables/epoch_metrics.csv">epoch CSV</a></p></section>
@@ -644,6 +789,28 @@ def _qualitative_html(history: Dict[str, List[Dict[str, Any]]]) -> str:
     if not sections:
         return '<section class="card"><h2>Qualitative history</h2><p>Not available for this run.</p></section>'
     return "<section><h2>Fixed qualitative sets</h2>" + "".join(sections) + "</section>"
+
+
+def _headline_html(rows: Sequence[Dict[str, Any]]) -> str:
+    if not rows:
+        return (
+            '<div class="card"><p>No development evaluation exists. Training-subset '
+            "metrics, when present, diagnose memorization only.</p></div>"
+        )
+    cards = []
+    for row in rows:
+        value = row.get("value")
+        display = _format(value)
+        if row.get("kind") == "score" and isinstance(value, (float, int)):
+            display = f"{100.0 * float(value):.2f}%"
+        cards.append(
+            '<article class="metric">'
+            f"<b>{html.escape(str(row['metric']))}</b>"
+            f'<div class="value">{html.escape(display)}</div>'
+            f'<div class="scope">{html.escape(str(row["scope"]))}</div>'
+            "</article>"
+        )
+    return '<div class="metric-grid">' + "".join(cards) + "</div>"
 
 
 def _html_table(rows: Sequence[Dict[str, Any]]) -> str:

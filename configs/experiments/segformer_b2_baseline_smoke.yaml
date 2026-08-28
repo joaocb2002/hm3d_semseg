@@ -12,7 +12,7 @@ training:
   seed: 2027
   deterministic_algorithms: false
   device: auto
-  max_train_samples: 512
+  max_train_samples: 1024
   max_development_samples: 256
   sample_selection: scene_diverse
   development_sample_selection: scene_diverse

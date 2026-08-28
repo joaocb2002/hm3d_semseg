@@ -130,9 +130,11 @@ def _write_evaluation(run: Path, miou: float, scene_value: float) -> None:
         for class_id in range(41)
     ]
     normalized = [[0.0] * 41 for _ in range(41)]
+    confusion = [[0] * 41 for _ in range(41)]
     for class_id in range(41):
         normalized[class_id][class_id] = miou
         normalized[class_id][(class_id + 1) % 41] = 1.0 - miou
+        confusion[class_id][class_id] = 100
     report = {
         "checkpoint": str(run / "checkpoints" / "best"),
         "dataset": str(run / "development"),
@@ -149,6 +151,7 @@ def _write_evaluation(run: Path, miou: float, scene_value: float) -> None:
             "mean_class_recall": miou,
             "unknown": {"iou": miou, "prevalence": 0.1},
             "per_class": classes,
+            "confusion_matrix": confusion,
             "row_normalized_confusion_matrix": normalized,
             "objectnav_six": {
                 goal: {
@@ -171,6 +174,18 @@ def _write_evaluation(run: Path, miou: float, scene_value: float) -> None:
             "nll": 1.0,
             "multiclass_brier": 0.3,
             "ece": 0.1,
+            "bins": [
+                {"count": 10, "confidence": 0.6, "accuracy": 0.5},
+                {"count": 20, "confidence": 0.9, "accuracy": 0.8},
+            ],
+            "risk_coverage": [
+                {
+                    "minimum_confidence": 0.9,
+                    "coverage": 2 / 3,
+                    "risk": 0.2,
+                },
+                {"minimum_confidence": 0.0, "coverage": 1.0, "risk": 0.3},
+            ],
         },
     }
     output = run / "evaluation-epoch-000"
@@ -191,6 +206,47 @@ def test_explicit_evaluation_report_exposes_metrics_tables_and_confusions(
     assert Path(result["report"]).is_file()
     assert (evaluation / "report" / "tables" / "per_class.csv").is_file()
     assert (evaluation / "report" / "tables" / "top_confusions.csv").is_file()
+    html_report = Path(result["report"]).read_text(encoding="utf-8")
+    assert "How these values are aggregated" in html_report
+    assert "It is not an average of image scores" in html_report
+
+
+def test_evaluation_plots_include_thresholds_and_both_scene_views(
+    tmp_path: Path,
+) -> None:
+    pytest.importorskip("matplotlib")
+    from hm3d_semseg.evaluation.plots import save_evaluation_plots
+
+    _write_evaluation(tmp_path, 0.4, 0.35)
+    evaluation = tmp_path / "evaluation-epoch-000"
+    report = json.loads((evaluation / "summary.json").read_text())
+
+    save_evaluation_plots(report, evaluation)
+
+    assert (evaluation / "plots" / "per_scene_miou.png").is_file()
+    assert (evaluation / "plots" / "per_scene_miou_distribution.png").is_file()
+    assert (evaluation / "plots" / "risk_coverage.png").is_file()
+
+
+def test_training_report_explains_global_and_scene_macro_scopes(tmp_path: Path) -> None:
+    from hm3d_semseg.training.report import generate_training_report
+
+    _write_records(tmp_path / "metrics.jsonl")
+    _write_evaluation(tmp_path, 0.4, 0.35)
+
+    result = generate_training_report(tmp_path)
+
+    html_report = Path(result["report"]).read_text(encoding="utf-8")
+    summary = json.loads((tmp_path / "report" / "summary.json").read_text())
+    assert "How every headline value is aggregated" in html_report
+    assert "It never means an average of image scores" in html_report
+    assert "Every other populated metric column below is computed on development" in (
+        html_report
+    )
+    assert summary["headline_metrics"][1]["metric"] == "Global known-class mIoU"
+    assert summary["metric_scope_guide"][-1]["reported_value"].startswith(
+        "Scene-macro"
+    )
 
 
 def test_compare_runs_uses_held_out_metrics_and_paired_scenes(tmp_path: Path) -> None:

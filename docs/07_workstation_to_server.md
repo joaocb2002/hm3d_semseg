@@ -84,7 +84,7 @@ hm3d-semseg compare-runs \
   --output /home/joaocb2002/hm3d-semseg-data/runs/comparisons/smoke
 ```
 
-The smoke comparison proves reporting and evaluation mechanics; its 512/256
+The smoke comparison proves reporting and evaluation mechanics; its 1,024/256
 subsets are too small to select the final recipe.
 
 ## 7.2 Freeze the workstation source

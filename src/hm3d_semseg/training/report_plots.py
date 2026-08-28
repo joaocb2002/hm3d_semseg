@@ -30,60 +30,68 @@ def save_report_plots(
     output.mkdir(parents=True, exist_ok=True)
     epochs = np.asarray([epoch + 1 for epoch, _ in evaluations])
 
-    figure, axes = plot.subplots(3, 1, figsize=(11, 11), sharex=True)
+    figure, axes = plot.subplots(3, 1, figsize=(12, 12), sharex=True)
     training_epochs = _training_epoch_losses(metrics_path)
     if training_epochs:
         axes[0].plot(
             [epoch + 1 for epoch, _ in training_epochs],
             [value for _, value in training_epochs],
             marker="o",
-            label="training objective CE",
+            label="training objective CE (mean over minibatches)",
         )
     axes[0].plot(
         epochs,
         [_number(report.get("mean_cross_entropy_loss")) for _, report in evaluations],
         marker="o",
-        label="development CE",
+        label="development CE (pooled valid pixels)",
     )
     axes[0].set_ylabel("Cross-entropy")
+    axes[0].set_title(
+        "Loss: training optimization objective versus unweighted held-out pixel NLL"
+    )
     axes[0].legend()
     axes[1].plot(
         epochs,
         [_global(report, "known_class_miou") for _, report in evaluations],
         marker="o",
-        label="known-class mIoU",
+        label="global known-class mIoU (macro over classes)",
     )
     axes[1].plot(
         epochs,
         [_global(report, "objectnav_six_miou") for _, report in evaluations],
         marker="o",
-        label="ObjectNav-six mIoU",
+        label="global ObjectNav-six mIoU (macro over goal classes)",
     )
     axes[1].plot(
         epochs,
         [_number(report["scene_macro"].get("mean")) for _, report in evaluations],
         marker="o",
-        label="scene-macro mIoU",
+        label="scene-macro known-class mIoU (macro over scenes)",
     )
     axes[1].set_ylabel("IoU")
     axes[1].set_ylim(0, 1)
-    axes[1].legend()
+    axes[1].set_title(
+        "Global pools every development pixel first; scene macro equally weights "
+        "per-scene mIoUs"
+    )
+    axes[1].legend(fontsize=9)
     axes[2].plot(
         epochs,
         [_global(report, "overall_pixel_accuracy") for _, report in evaluations],
         marker="o",
-        label="overall pixel accuracy",
+        label="global pixel accuracy (micro over valid pixels)",
     )
     axes[2].plot(
         epochs,
         [_global(report, "mean_class_recall") for _, report in evaluations],
         marker="o",
-        label="mean class recall",
+        label="global mean class recall (macro over present classes)",
     )
     axes[2].set_xlabel("Epoch")
     axes[2].set_ylabel("Score")
     axes[2].set_ylim(0, 1)
-    axes[2].legend()
+    axes[2].set_title("Both values come from one pooled development confusion matrix")
+    axes[2].legend(fontsize=9)
     _mark_checkpoints(axes, evaluations)
     figure.suptitle("Learning and held-out generalization")
     figure.tight_layout()

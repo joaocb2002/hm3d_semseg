@@ -274,6 +274,13 @@ coexist; report both, but select by known-class mIoU.
 **Global metrics** first accumulate every evaluated location into one confusion
 matrix. Large scenes and prevalent classes contribute more counts.
 
+In an ordinary smoke or full recipe-development run, every accuracy, IoU,
+per-class, per-scene, and probability metric is a **development-set** metric.
+The only routine training-set curve is the optimization cross-entropy. The
+pipeline does not add a costly second evaluation over the complete training
+set; tiny overfit is the explicit exception and labels its four-image result as
+a memorization diagnostic.
+
 **Scene-macro metrics** compute known-class mIoU independently per scene, then
 report the mean and median. They reveal whether performance is stable across
 environments rather than concentrated in large/easy scenes.
@@ -348,7 +355,11 @@ Incorrect predictions should generally have higher entropy than correct ones.
 
 Risk-coverage sorts or bins by confidence. Coverage is the retained fraction;
 risk is one minus retained accuracy. A useful uncertainty estimate lets the
-system discard low-confidence locations and reduce risk.
+system discard low-confidence locations and reduce risk. Every point in
+`risk_coverage.png` is labeled with its minimum retained softmax-confidence
+threshold $t$; the plot means "keep locations whose confidence is at least
+$t$." The final point at coverage 1 therefore has risk equal to one minus
+overall pixel accuracy.
 
 ## What temperature calibration optimizes
 
@@ -464,7 +475,7 @@ When a development dataset is configured, it also contains:
 | `plots/development_metrics.png` | Training/development cross-entropy and development known-class mIoU by epoch. |
 | `evaluation-epoch-EEE/summary.json` | Complete development loss, global/per-class/ObjectNav-six, scene-macro, and probability metrics for one epoch. |
 | `evaluation-epoch-EEE/confusion_matrix.npy` | Exact integer confusion counts. |
-| `evaluation-epoch-EEE/plots/*.png` | Raw/normalized confusion, per-class and per-scene IoU, reliability, and risk-coverage. |
+| `evaluation-epoch-EEE/plots/*.png` | Raw/normalized confusion, per-class IoU, sorted per-scene IoU, the scene-score distribution, reliability, and threshold-labeled risk-coverage. |
 
 `metrics_summary.json` points to the report and plots for the highest
 development known-class mIoU. That epoch supplies `checkpoints/best`.
