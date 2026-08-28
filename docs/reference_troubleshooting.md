@@ -130,7 +130,7 @@ correctness protocol. Do not invent dataset shards without a measured need.
 ## Tiny overfit fails
 
 Disable augmentation; inspect paired RGB/masks; verify class 0 and ignore 255;
-confirm nearest mask geometry, raw-logit loss, classifier learning rate, and
+confirm nearest mask geometry, raw-logit loss, decode-head learning rate, and
 gradients. Full recipe runs are blocked until four selected images nearly
 memorize.
 

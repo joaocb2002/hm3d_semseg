@@ -59,6 +59,33 @@ def test_development_smoke_recipes_are_bounded_and_scene_diverse(
     assert config.evaluation.qualitative_samples == 10
 
 
+def test_ade20k_recipe_is_explicit_and_iteration_bounded() -> None:
+    generated = Path("/tmp/generated")
+    config = load_config(
+        command_config=_experiment("segformer_b2_ade20k_recipe.yaml"),
+        cli_overrides={"paths": {"generated_data_root": str(generated)}},
+    )
+
+    assert config.training.train_dataset == generated / "train-v1"
+    assert config.training.development_dataset == generated / "development-v1"
+    assert config.training.class_weighting == "none"
+    assert config.training.batch_size == 16
+    assert config.training.head_learning_rate == pytest.approx(6e-4)
+    assert config.training.max_optimizer_steps == 160_000
+    assert config.training.learning_rate_schedule == "polynomial"
+    assert config.training.learning_rate_schedule_steps == 160_000
+    assert config.training.warmup_steps == 1_500
+    assert config.training.warmup_start_factor == pytest.approx(1e-6)
+    assert config.augmentation.resize_base_width == 2_048
+    assert config.augmentation.resize_base_height == 512
+    assert config.augmentation.random_scale_min == 0.5
+    assert config.augmentation.random_scale_max == 2.0
+    assert config.augmentation.crop_width == 512
+    assert config.augmentation.crop_height == 512
+    assert config.augmentation.crop_max_class_fraction == 0.75
+    assert config.augmentation.photometric_distortion is True
+
+
 def test_tiny_overfit_explicitly_disables_development_dataset() -> None:
     config = load_config(
         command_config=_experiment("overfit_tiny.yaml"),
@@ -97,6 +124,14 @@ def test_weighting_and_warmup_are_validated() -> None:
         load_config(cli_overrides={"training": {"class_weighting": "extreme"}})
     with pytest.raises(ConfigurationError, match="warmup_fraction"):
         load_config(cli_overrides={"training": {"warmup_fraction": 1.0}})
+    with pytest.raises(ConfigurationError, match=r"either training\.warmup_steps"):
+        load_config(cli_overrides={"training": {"warmup_steps": 10}})
+    with pytest.raises(ConfigurationError, match="learning_rate_schedule"):
+        load_config(
+            cli_overrides={"training": {"learning_rate_schedule": "triangle"}}
+        )
+    with pytest.raises(ConfigurationError, match="max_optimizer_steps"):
+        load_config(cli_overrides={"training": {"max_optimizer_steps": 0}})
     with pytest.raises(ConfigurationError, match=r"training\.device"):
         load_config(cli_overrides={"training": {"device": "gpu"}})
     with pytest.raises(ConfigurationError, match=r"training\.max_train_samples"):

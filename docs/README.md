@@ -16,8 +16,8 @@ references are not additional pipeline steps.
 | 6 | [Validate the dataset contract](06_dataset_format.md) | Workstation | Every portable dataset root validates. |
 | 7 | [Move from workstation to GPU server](07_workstation_to_server.md) | Both | Exact source, data, model snapshot, and server environment pass tiny overfit. |
 | 8 | [Develop and refit the model](08_server_training.md) | GPU server | A recipe is selected on development data and refit on all training scenes. |
-| 9 | [Evaluate and calibrate the final model](09_server_evaluation_and_calibration.md) | GPU server | Official metrics, temperature, calibration metrics, and benchmark are frozen. |
-| 10 | [Return artifacts and integrate with ObjectNav](10_return_and_objectnav.md) | Server to workstation | The complete calibrated checkpoint passes local inference and camera checks. |
+| 9 | [Evaluate the final model; optionally calibrate](09_server_evaluation_and_calibration.md) | GPU server | Official hard-segmentation metrics are frozen; probability calibration may follow later. |
+| 10 | [Return artifacts and integrate with ObjectNav](10_return_and_objectnav.md) | Server to workstation | The complete selected checkpoint passes local inference and camera checks. |
 
 The current machine-specific roots used by this project are:
 

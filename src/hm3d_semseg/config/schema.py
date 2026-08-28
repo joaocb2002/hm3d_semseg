@@ -78,7 +78,16 @@ class DatasetConfig:
 
 @dataclass
 class AugmentationConfig:
+    resize_base_width: Optional[int] = None
+    resize_base_height: Optional[int] = None
+    random_scale_min: float = 1.0
+    random_scale_max: float = 1.0
+    crop_width: Optional[int] = None
+    crop_height: Optional[int] = None
+    crop_max_class_fraction: float = 1.0
+    crop_attempts: int = 10
     horizontal_flip_probability: float = 0.5
+    photometric_distortion: bool = False
     color_jitter: float = 0.1
     blur_probability: float = 0.05
     sensor_noise_std: float = 0.01
@@ -118,12 +127,19 @@ class TrainingConfig:
     qualitative_every_epochs: int = 1
     run_name: str = "segformer_b2_baseline"
     epochs: int = 20
+    max_optimizer_steps: Optional[int] = None
     batch_size: int = 2
     workers: int = 4
     encoder_learning_rate: float = 6e-5
+    head_learning_rate: Optional[float] = None
     classifier_learning_rate: float = 6e-4
     weight_decay: float = 0.01
+    learning_rate_schedule: str = "cosine"
+    learning_rate_schedule_steps: Optional[int] = None
+    polynomial_power: float = 1.0
     warmup_fraction: float = 0.05
+    warmup_steps: Optional[int] = None
+    warmup_start_factor: float = 0.0
     gradient_accumulation_steps: int = 1
     gradient_clip_norm: float = 1.0
     amp: bool = True

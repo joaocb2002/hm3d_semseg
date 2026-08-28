@@ -125,13 +125,14 @@ It raises the correct-class logit and lowers incorrect logits. This smooth,
 location-decomposable gradient is why cross-entropy drives training. Hard IoU
 depends on argmax decisions and is not directly differentiable.
 
-Loss does not by itself decide when the current full experiments stop. Their
-`early_stopping_patience` is `null`, so they run the configured epoch count.
+Loss does not by itself decide when the recommended full experiment stops. It
+runs until `max_optimizer_steps` (or its epoch safety cap), while the best
+checkpoint is selected by development known-class mIoU.
 When early stopping is enabled, improvement is judged by development
 known-class mIoU if a development root exists; otherwise it uses negative
 training epoch loss.
 
-### Moderately balanced weighted loss
+### Historical moderately balanced weighted loss
 
 Let $n_c$ be the valid training-pixel count for supported class $c$, and let
 $S$ be the set of classes with $n_c>0$. Before mean normalization and
@@ -154,10 +155,18 @@ $$
 $$
 
 This moderates dominance by large surfaces without giving extremely rare
-classes unbounded influence. It is a controlled candidate, not a universal
-segmentation standard. Development and evaluation cross-entropy remain
-unweighted so recipes remain comparable. The exact vector and SHA-256 are in
-`class_weights.npy` and `class_weights.json` inside a balanced run.
+classes unbounded influence. It is not a universal segmentation standard. In
+this project's completed controlled comparison, it did not materially improve
+held-out known-class mIoU and worsened several important supporting measures.
+The recommended ADE20K-style recipe therefore uses unweighted cross-entropy.
+The implementation and historical configs remain for reproducibility. Their
+exact vector and SHA-256 are in `class_weights.npy` and `class_weights.json`.
+
+Lovasz-Softmax, Dice, focal loss, and mixtures of them are legitimate research
+options, but none is guaranteed to improve this dataset. Adding one while also
+changing augmentation, schedule, batch, and optimizer grouping would prevent a
+causal interpretation. Test such a loss only as a later single-variable
+ablation if the corrected cross-entropy recipe leaves a specific failure.
 
 ### How reported training and evaluation loss differ
 
@@ -384,7 +393,8 @@ cannot improve IoU, accuracy, or any other argmax-derived metric.
 
 ## Optimization diagnostics are not quality metrics
 
-- learning rates verify warm-up and cosine decay for both parameter groups;
+- learning rates verify warm-up and polynomial decay for decay/no-decay
+  pretrained and decode-head groups;
 - gradient norm exposes spikes, vanishing updates, or non-finite behavior;
 - samples per second and seconds per optimizer step reveal loader/GPU stalls;
 - peak GPU memory checks headroom;

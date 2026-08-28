@@ -153,32 +153,50 @@ def predict(
 def parameter_groups(
     model: Any,
     encoder_learning_rate: float,
-    classifier_learning_rate: float,
+    head_learning_rate: float,
     weight_decay: float,
+    *,
+    entire_decode_head: bool = False,
+    exclude_one_dimensional_from_decay: bool = False,
 ) -> List[Dict[str, Any]]:
-    classifier_parameters = []
-    pretrained_parameters = []
+    grouped: Dict[Tuple[str, bool], List[Any]] = {
+        ("pretrained", True): [],
+        ("pretrained", False): [],
+        ("decode_head", True): [],
+        ("decode_head", False): [],
+    }
     for name, parameter in model.named_parameters():
         if not parameter.requires_grad:
             continue
-        if "decode_head.classifier" in name:
-            classifier_parameters.append(parameter)
-        else:
-            pretrained_parameters.append(parameter)
-    return [
-        {
-            "params": pretrained_parameters,
-            "lr": encoder_learning_rate,
-            "weight_decay": weight_decay,
-            "group_name": "pretrained",
-        },
-        {
-            "params": classifier_parameters,
-            "lr": classifier_learning_rate,
-            "weight_decay": weight_decay,
-            "group_name": "classifier",
-        },
-    ]
+        high_rate = (
+            name.startswith("decode_head.")
+            if entire_decode_head
+            else "decode_head.classifier" in name
+        )
+        family = "decode_head" if high_rate else "pretrained"
+        use_decay = not exclude_one_dimensional_from_decay or (
+            parameter.ndim > 1 and not name.endswith(".bias")
+        )
+        grouped[(family, use_decay)].append(parameter)
+    result = []
+    for family in ("pretrained", "decode_head"):
+        learning_rate = (
+            head_learning_rate
+            if family == "decode_head"
+            else encoder_learning_rate
+        )
+        for use_decay in (True, False):
+            parameters = grouped[(family, use_decay)]
+            if parameters:
+                result.append(
+                    {
+                        "params": parameters,
+                        "lr": learning_rate,
+                        "weight_decay": weight_decay if use_decay else 0.0,
+                        "group_name": f"{family}_{'decay' if use_decay else 'no_decay'}",
+                    }
+                )
+    return result
 
 
 def download_model(model_id: str, cache_dir: Path, revision: Optional[str]) -> Dict[str, str]:

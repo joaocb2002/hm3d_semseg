@@ -1,10 +1,14 @@
-# 9. Server evaluation and calibration
+# 9. Server evaluation; optional calibration
 
 **Execution location: GPU server.** Enter with the frozen final experiment and
-its `checkpoints/last`. This stage never changes SegFormer weights. It reports
-hard segmentation once on official validation, fits one positive temperature
-on dedicated calibration-fit scenes, measures probability quality on disjoint
-calibration-evaluation scenes, and benchmarks the deployment checkpoint.
+its `checkpoints/last`. This stage never changes SegFormer weights. First report
+hard segmentation once on official validation. Only after those masks and mIoU
+are accepted may the optional later sections fit one positive temperature,
+measure probability quality on disjoint scenes, and benchmark deployment.
+
+Temperature scaling is **not** part of recipe selection and cannot improve
+argmax masks, pixel accuracy, per-class IoU, or mIoU. It is safe to stop after
+section 9.2 while hard segmentation is the current research priority.
 
 Generic paths below are followed by the planned current paths. If training
 allocated a numeric suffix, replace `segformer_b2_final` with the exact run
@@ -68,7 +72,7 @@ scene-macro mean/median/bootstrap interval, and efficiency provenance. The
 evaluator accumulates one global pixel confusion matrix; it does not average
 batch IoUs.
 
-## 9.3 Fit one scalar temperature
+## 9.3 Optional: fit one scalar temperature
 
 Freeze all model weights and fit temperature only on the 12 scenes in
 `calibration-fit-v1`.
@@ -99,7 +103,7 @@ divides all 41 logits before softmax. It changes probability sharpness but prese
 ordering, so the argmax segmentation mask and all hard-label metrics remain
 unchanged.
 
-## 9.4 Evaluate probability calibration without leakage
+## 9.4 Optional: evaluate probability calibration without leakage
 
 Read the fitted temperature:
 
@@ -145,7 +149,7 @@ Generic command:
 
 ```bash
 hm3d-semseg benchmark-inference \
-  --checkpoint /server/runs/FINAL_RUN/checkpoints/calibrated \
+  --checkpoint /server/runs/FINAL_RUN/checkpoints/DEPLOYMENT_CHECKPOINT \
   --output /server/runs/FINAL_RUN/benchmark \
   --warmup 20 \
   --iterations 100
@@ -155,13 +159,14 @@ Planned current command:
 
 ```bash
 hm3d-semseg benchmark-inference \
-  --checkpoint /workspace/runs/segformer_b2_final/checkpoints/calibrated \
+  --checkpoint /workspace/runs/segformer_b2_final/checkpoints/last \
   --output /workspace/runs/segformer_b2_final/benchmark \
   --warmup 20 \
   --iterations 100
 ```
 
-Preserve native-resolution batch-1 latency, FPS, p95, peak memory, parameter
+Use `last` when calibration is deferred; use `calibrated` only after sections
+9.3--9.4 are accepted. Preserve native-resolution batch-1 latency, FPS, p95, peak memory, parameter
 count, GPU, precision, warm-up, and timing iterations. Server throughput is not
 a substitute for later benchmarking on the ObjectNav deployment GPU.
 
@@ -171,25 +176,27 @@ Generic checksum procedure:
 
 ```bash
 cd /server/runs/FINAL_RUN
-find checkpoints/calibrated -type f -print0 \
+DEPLOYMENT_CHECKPOINT=checkpoints/last  # or checkpoints/calibrated
+find "$DEPLOYMENT_CHECKPOINT" -type f -print0 \
   | sort -z \
-  | xargs -0 sha256sum > calibrated.sha256
-sha256sum -c calibrated.sha256
+  | xargs -0 sha256sum > deployment.sha256
+sha256sum -c deployment.sha256
 ```
 
 Planned current procedure:
 
 ```bash
 cd /workspace/runs/segformer_b2_final
-find checkpoints/calibrated -type f -print0 \
+DEPLOYMENT_CHECKPOINT=checkpoints/last  # use calibrated only if accepted
+find "$DEPLOYMENT_CHECKPOINT" -type f -print0 \
   | sort -z \
-  | xargs -0 sha256sum > calibrated.sha256
-sha256sum -c calibrated.sha256
+  | xargs -0 sha256sum > deployment.sha256
+sha256sum -c deployment.sha256
 ```
 
 Keep the complete final run: resolved configuration, provenance, raw and
 summarized metrics, evaluation outputs, plots, diagnostics, TensorBoard,
-benchmark, best/last/calibrated checkpoints, and checksum manifest. A loose
+benchmark, best/last and optional calibrated checkpoints, and checksum manifest. A loose
 `model.safetensors` is not a deployable or reproducible checkpoint.
 
 Detailed definitions and output paths are in the

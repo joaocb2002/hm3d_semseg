@@ -38,7 +38,7 @@ Git working tree --commit/push----> exact Git clone
 validated datasets -------rsync----> server data root
                                      train/evaluate/calibrate
 local source remains unchanged <---- complete run via rsync
-ObjectNav loads calibrated checkpoint from the returned run
+ObjectNav loads the selected complete checkpoint from the returned run
 ```
 
 Git and model artifacts are separate channels. Git tracks source, checked
@@ -46,7 +46,7 @@ configuration, scene lists, tests, and documentation. Generated datasets,
 TensorBoard events, run reports, and checkpoints are ignored by Git. Training
 normally does not modify the server clone, so the workstation does not pull a
 model with `git pull`: it copies the complete final run back into its external
-`hm3d-semseg-data/runs` tree and loads the calibrated checkpoint from there.
+`hm3d-semseg-data/runs` tree and loads the complete selected checkpoint from there.
 
 ## Local implementation findings
 
@@ -155,7 +155,7 @@ its ten stages in order:
 6. [Validate the dataset contract](docs/06_dataset_format.md)
 7. [Move from workstation to GPU server](docs/07_workstation_to_server.md)
 8. [Develop and refit the model](docs/08_server_training.md)
-9. [Evaluate and calibrate the final model](docs/09_server_evaluation_and_calibration.md)
+9. [Evaluate the final model; optionally calibrate](docs/09_server_evaluation_and_calibration.md)
 10. [Return artifacts and integrate with ObjectNav](docs/10_return_and_objectnav.md)
 
 Supporting references:
@@ -168,7 +168,7 @@ Supporting references:
 The machine boundary is deliberate: resolve the ObjectNav camera and render
 licensed HM3D data in the Habitat workstation environment; transfer complete,
 validated offline dataset directories to a host-matched single-GPU training
-environment; then return the complete final run and calibrated checkpoint for
+environment; then return the complete final run and selected checkpoint for
 local verification and ObjectNav deployment. Never transfer an uncommitted
 working tree or deploy a loose `model.safetensors` file. Steps 7--10 separately
 own transfer/server acceptance, training, final evaluation/calibration, and
@@ -180,26 +180,26 @@ At the end, the workstation owns two linked but separate records:
 ```text
 /home/joaocb2002/projects/hm3d-semseg/                             # exact Git source
 /home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final/  # planned final run
-└── checkpoints/calibrated/                                        # deployment input
+└── checkpoints/last/                         # deployment input until optional calibration
 ```
 
 The complete execution sequence is: install; configure local paths; run
 `doctor`; freeze the camera; run unit tests; inspect minival; run Habitat tests;
 audit minival; generate and validate the pilot; explicitly download the model;
 run the renderer smoke check; audit train/val; freeze the internal split;
-generate and validate all six offline datasets; run local tiny-overfit,
-baseline-smoke, and balanced-smoke checks; freeze the source commit; transfer
-complete datasets; recreate and accept the server environment; compare full
-recipes on development; freeze the recipe; train on all 145 scenes; evaluate
-the fixed 36-scene official validation set; calibrate on disjoint scenes; return
-and checksum the complete run; verify inference locally; integrate through the
-Python API; benchmark the actual ObjectNav host.
+generate and validate all six offline datasets; run local tiny-overfit and the
+ADE20K-recipe smoke check; freeze the source commit; transfer complete datasets;
+recreate and accept the server environment; run the corrected recipe on
+development; freeze its selected step; refit on all 145 scenes; evaluate the
+fixed 36-scene official validation set; optionally calibrate later on disjoint
+scenes; return and checksum the complete run; verify inference locally;
+integrate through the Python API; benchmark the actual ObjectNav host.
 
 After every `train` command, open the collision-safe run directory's
 `report/index.html`. It is the human-facing dashboard; raw JSON/JSONL,
 confusion arrays, checkpoints, and provenance remain the reproducible source
-record. Use `hm3d-semseg compare-runs` for the baseline-versus-balanced
-development decision instead of manually aligning many epoch directories.
+record. Historical baseline-versus-balanced comparisons remain reproducible,
+but the recommended next run is the unweighted ADE20K-style recipe.
 
 ## Known limitations
 

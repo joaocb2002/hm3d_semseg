@@ -43,9 +43,11 @@ class TrainingProgress:
         trainable_parameters: int,
         total_parameters: int,
         encoder_learning_rate: float,
-        classifier_learning_rate: float,
+        head_learning_rate: float,
         weight_decay: float,
         warmup_steps: int,
+        learning_rate_schedule: str,
+        learning_rate_schedule_steps: int,
     ) -> None:
         if not self.enabled:
             return
@@ -74,8 +76,9 @@ class TrainingProgress:
         print(
             "Optimization: AdamW, "
             f"encoder_lr={encoder_learning_rate:.2e}, "
-            f"classifier_lr={classifier_learning_rate:.2e}, "
-            f"weight_decay={weight_decay:g}, warmup_steps={warmup_steps}",
+            f"decode_head_lr={head_learning_rate:.2e}, "
+            f"weight_decay={weight_decay:g}, warmup_steps={warmup_steps}, "
+            f"schedule={learning_rate_schedule}/{learning_rate_schedule_steps} steps",
             file=output,
             flush=True,
         )

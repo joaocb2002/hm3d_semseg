@@ -2,7 +2,7 @@
 
 This stage starts on the workstation after step 9 seals the final server run.
 It copies artifacts through the data-transfer channel, keeps source through Git,
-verifies the calibrated checkpoint, and then loads it from the Habitat/ObjectNav
+verifies the selected deployment checkpoint, and then loads it from the Habitat/ObjectNav
 environment. The trained model is never committed to this repository.
 
 ## 10.1 Copy the complete final run back
@@ -49,20 +49,21 @@ Generic verification:
 
 ```bash
 cd /local/hm3d-semseg-data/runs/server/FINAL_RUN
-sha256sum -c calibrated.sha256
+sha256sum -c deployment.sha256
 ```
 
 Planned current verification:
 
 ```bash
 cd /home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final
-sha256sum -c calibrated.sha256
+sha256sum -c deployment.sha256
 ```
 
 Then inspect `provenance.json`, `resolved_config.yaml`, `summary.json`,
-`metrics_summary.json`, official/calibration evaluation summaries, and the
-benchmark. The Git SHA, camera hash, model revision, dataset identities, and
-temperature must match the accepted server record.
+`metrics_summary.json`, official and optional calibration evaluation summaries,
+and the benchmark. The Git SHA, camera hash, model revision, and dataset
+identities must match the accepted server record. If calibration was performed,
+the temperature must also match.
 
 On the workstation source repository, first ensure local work is safe:
 
@@ -104,7 +105,7 @@ Generic command:
 
 ```bash
 hm3d-semseg infer \
-  --checkpoint /local/runs/server/FINAL_RUN/checkpoints/calibrated \
+  --checkpoint /local/runs/server/FINAL_RUN/checkpoints/DEPLOYMENT_CHECKPOINT \
   --image /path/to/representative/rgb.png \
   --output /local/inference-check
 ```
@@ -113,7 +114,7 @@ Planned current command using an existing inspected HM3D view:
 
 ```bash
 hm3d-semseg infer \
-  --checkpoint /home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final/checkpoints/calibrated \
+  --checkpoint /home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final/checkpoints/last \
   --image /home/joaocb2002/hm3d-semseg-data/generated/inspection/TEEsavR23oF/view_000_rgb.png \
   --output /home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final/inference-check
 ```
@@ -122,7 +123,11 @@ Inspect class IDs, color mask, RGB overlay, confidence, entropy, and metadata.
 The output preserves input aspect ratio. Add `--save-probabilities` only when a
 large float32 `[41, H, W]` tensor is actually needed.
 
-## 10.5 Load the complete calibrated checkpoint through Python
+Use `checkpoints/last` while calibration is deferred. Substitute
+`checkpoints/calibrated` only after its disjoint calibration evaluation is
+accepted.
+
+## 10.5 Load the complete deployment checkpoint through Python
 
 Generic API:
 
@@ -131,7 +136,7 @@ from pathlib import Path
 from hm3d_semseg import inference
 
 segmenter = inference.SemanticSegmenter.from_checkpoint(
-    Path("/local/runs/server/FINAL_RUN/checkpoints/calibrated"),
+    Path("/local/runs/server/FINAL_RUN/checkpoints/DEPLOYMENT_CHECKPOINT"),
     device="cuda",
 )
 result = segmenter(rgb_uint8)
@@ -148,7 +153,7 @@ from hm3d_semseg import inference
 segmenter = inference.SemanticSegmenter.from_checkpoint(
     Path(
         "/home/joaocb2002/hm3d-semseg-data/runs/server/"
-        "segformer_b2_final/checkpoints/calibrated"
+        "segformer_b2_final/checkpoints/last"
     ),
     device="cuda",
 )
@@ -157,9 +162,9 @@ probabilities = result["probabilities"]  # [41, H, W]
 labels = result["labels"]                # [H, W]
 ```
 
-The complete calibrated directory is the deployment unit. Copying only
+The complete `last` or `calibrated` directory is the deployment unit. Copying only
 `model.safetensors` would omit model/project metadata, label definitions,
-camera/resize contract, and the fitted temperature.
+camera/resize contract, and any fitted temperature.
 
 ## 10.6 Enforce camera compatibility in ObjectNav
 

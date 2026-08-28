@@ -74,8 +74,7 @@ def _configure_deterministic_algorithms(enabled: bool) -> Dict[str, Any]:
     torch.use_deterministic_algorithms(enabled)
     if hasattr(torch.backends, "cudnn"):
         torch.backends.cudnn.deterministic = enabled
-        if enabled:
-            torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.benchmark = not enabled
     return {
         "strict_algorithms": enabled,
         "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
@@ -86,6 +85,44 @@ def _configure_deterministic_algorithms(enabled: bool) -> Dict[str, Any]:
             getattr(getattr(torch.backends, "cudnn", None), "benchmark", False)
         ),
     }
+
+
+def _resolve_optimizer_steps(
+    *,
+    epochs: int,
+    steps_per_epoch: int,
+    maximum: Optional[int],
+) -> int:
+    """Resolve the epoch cap and optional iteration cap to one total."""
+    epoch_steps = max(1, epochs * steps_per_epoch)
+    return min(epoch_steps, maximum) if maximum is not None else epoch_steps
+
+
+def _learning_rate_scale(
+    step: int,
+    *,
+    total_steps: int,
+    warmup_steps: int,
+    warmup_start_factor: float,
+    schedule: str,
+    polynomial_power: float,
+    legacy_warmup_offset: bool = False,
+) -> float:
+    """Return the official-style linear-warmup then decay multiplier."""
+    if warmup_steps and step < warmup_steps:
+        if legacy_warmup_offset:
+            return float(step + 1) / warmup_steps
+        if warmup_steps == 1:
+            return 1.0
+        fraction = step / (warmup_steps - 1)
+        return warmup_start_factor + (1.0 - warmup_start_factor) * fraction
+    progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+    progress = min(max(progress, 0.0), 1.0)
+    if schedule == "polynomial":
+        return (1.0 - progress) ** polynomial_power
+    if schedule == "cosine":
+        return 0.5 * (1.0 + math.cos(math.pi * progress))
+    raise ValueError(f"Unsupported learning-rate schedule: {schedule}")
 
 
 def _append_jsonl(path: Path, value: Dict[str, Any]) -> None:
@@ -196,8 +233,8 @@ def _configure_tensorboard_layout(writer: Any) -> None:
                 "learning_rates": [
                     "Multiline",
                     [
-                        "train/learning_rate_pretrained",
-                        "train/learning_rate_classifier",
+                        "train/learning_rate_pretrained_decay",
+                        "train/learning_rate_decode_head_decay",
                     ],
                 ],
                 "throughput": ["Multiline", ["train/samples_per_second"]],
@@ -412,11 +449,20 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         checkpoint=source_checkpoint,
         cache_dir=config.paths.cache_root,
     ).to(device)
+    head_learning_rate = (
+        config.training.head_learning_rate
+        if config.training.head_learning_rate is not None
+        else config.training.classifier_learning_rate
+    )
     groups = parameter_groups(
         model,
         config.training.encoder_learning_rate,
-        config.training.classifier_learning_rate,
+        head_learning_rate,
         config.training.weight_decay,
+        entire_decode_head=config.training.head_learning_rate is not None,
+        exclude_one_dimensional_from_decay=(
+            config.training.head_learning_rate is not None
+        ),
     )
     optimizer = torch.optim.AdamW(groups)
     dataset = OfflineSegmentationDataset(
@@ -441,15 +487,34 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     steps_per_epoch = max(
         1, math.ceil(len(loader) / config.training.gradient_accumulation_steps)
     )
-    total_steps = max(1, config.training.epochs * steps_per_epoch)
+    total_steps = _resolve_optimizer_steps(
+        epochs=config.training.epochs,
+        steps_per_epoch=steps_per_epoch,
+        maximum=config.training.max_optimizer_steps,
+    )
+    schedule_steps = config.training.learning_rate_schedule_steps or total_steps
 
-    warmup_steps = int(total_steps * config.training.warmup_fraction)
+    warmup_steps = (
+        config.training.warmup_steps
+        if config.training.warmup_steps is not None
+        else int(total_steps * config.training.warmup_fraction)
+    )
+    if warmup_steps >= schedule_steps:
+        raise ValueError(
+            f"warmup_steps ({warmup_steps}) must be smaller than the schedule horizon "
+            f"({schedule_steps})"
+        )
 
     def learning_rate_scale(step: int) -> float:
-        if warmup_steps and step < warmup_steps:
-            return float(step + 1) / warmup_steps
-        progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
-        return 0.5 * (1.0 + math.cos(math.pi * min(max(progress, 0.0), 1.0)))
+        return _learning_rate_scale(
+            step,
+            total_steps=schedule_steps,
+            warmup_steps=warmup_steps,
+            warmup_start_factor=config.training.warmup_start_factor,
+            schedule=config.training.learning_rate_schedule,
+            polynomial_power=config.training.polynomial_power,
+            legacy_warmup_offset=config.training.warmup_steps is None,
+        )
 
     scheduler = torch.optim.lr_scheduler.LambdaLR(
         optimizer,
@@ -523,9 +588,11 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         trainable_parameters=trainable,
         total_parameters=total,
         encoder_learning_rate=config.training.encoder_learning_rate,
-        classifier_learning_rate=config.training.classifier_learning_rate,
+        head_learning_rate=head_learning_rate,
         weight_decay=config.training.weight_decay,
         warmup_steps=warmup_steps,
+        learning_rate_schedule=config.training.learning_rate_schedule,
+        learning_rate_schedule_steps=schedule_steps,
     )
     camera_path = config.training.train_dataset / "camera_profile.yaml"
     model_metadata = {
@@ -537,6 +604,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     }
     epochs_completed = start_epoch
     for epoch in range(start_epoch, config.training.epochs):
+        if global_step >= total_steps:
+            break
         dataset.set_epoch(epoch)
         model.train()
         optimizer.zero_grad(set_to_none=True)
@@ -548,6 +617,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             torch.cuda.reset_peak_memory_stats(device)
         optimizer_step_started = time.perf_counter()
         for batch_index, batch in enumerate(loader):
+            if global_step >= total_steps:
+                break
             pixels = batch["pixel_values"].to(device, non_blocking=True)
             labels = batch["labels"].to(device, non_blocking=True)
             samples_since_step += int(pixels.shape[0])
@@ -661,6 +732,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             epoch == start_epoch
             or (epoch + 1) % config.training.qualitative_every_epochs == 0
             or epoch + 1 == config.training.epochs
+            or global_step >= total_steps
         )
         if capture_qualitative:
             progress.phase(epoch=epoch, name="training qualitative")
@@ -811,6 +883,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 },
             )
             break
+        if global_step >= total_steps:
+            break
     progress.close()
     subset_evaluation_summary = None
     if config.training.evaluate_train_subset:
@@ -904,7 +978,17 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         "batches_per_epoch": len(loader),
         "optimizer_steps_per_epoch": steps_per_epoch,
         "planned_optimizer_steps": total_steps,
+        "max_optimizer_steps": config.training.max_optimizer_steps,
+        "learning_rate_schedule": config.training.learning_rate_schedule,
+        "learning_rate_schedule_steps": schedule_steps,
+        "polynomial_power": config.training.polynomial_power,
         "warmup_steps": warmup_steps,
+        "warmup_start_factor": config.training.warmup_start_factor,
+        "warmup_mode": (
+            "explicit_linear"
+            if config.training.warmup_steps is not None
+            else "legacy_fraction"
+        ),
         "parameter_counts": {"trainable": trainable, "total": total},
         "optimizer_groups": optimizer_groups,
     }

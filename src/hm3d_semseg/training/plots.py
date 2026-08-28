@@ -43,9 +43,19 @@ def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
     axes[0].set_title("Training loss (aggregated; raw values remain in metrics.jsonl)")
     axes[0].legend()
     group_count = len(steps[0]["learning_rates"])
+    standard_group_names = (
+        "pretrained decay",
+        "pretrained no-decay",
+        "decode head decay",
+        "decode head no-decay",
+    )
     for index in range(group_count):
         group_name = (
-            ("pretrained", "classifier")[index] if group_count == 2 else f"group {index}"
+            ("pretrained", "classifier")[index]
+            if group_count == 2
+            else standard_group_names[index]
+            if group_count == 4
+            else f"group {index}"
         )
         axes[1].plot(
             x,

@@ -26,9 +26,11 @@ def test_training_progress_reports_setup_steps_and_live_metrics() -> None:
         trainable_parameters=75,
         total_parameters=100,
         encoder_learning_rate=1e-4,
-        classifier_learning_rate=1e-3,
+        head_learning_rate=1e-3,
         weight_decay=0.01,
         warmup_steps=1,
+        learning_rate_schedule="polynomial",
+        learning_rate_schedule_steps=4,
     )
     progress.step(epoch=0, loss=1.25, learning_rate=1e-4, samples_per_second=3.5)
     progress.phase(epoch=0, name="checkpoint")
@@ -40,7 +42,8 @@ def test_training_progress_reports_setup_steps_and_live_metrics() -> None:
     assert "total_steps=4" in output
     assert "75 trainable / 100 total (75.0% trainable)" in output
     assert "encoder_lr=1.00e-04" in output
-    assert "classifier_lr=1.00e-03" in output
+    assert "decode_head_lr=1.00e-03" in output
+    assert "schedule=polynomial/4 steps" in output
     assert "1/4" in output
     assert "loss=1.2500" in output
     assert "phase=checkpoint" in output
@@ -65,9 +68,11 @@ def test_training_progress_can_be_disabled() -> None:
         trainable_parameters=100,
         total_parameters=100,
         encoder_learning_rate=1e-4,
-        classifier_learning_rate=1e-3,
+        head_learning_rate=1e-3,
         weight_decay=0.0,
         warmup_steps=0,
+        learning_rate_schedule="cosine",
+        learning_rate_schedule_steps=2,
     )
     progress.step(epoch=0, loss=1.0, learning_rate=1e-4, samples_per_second=1.0)
     progress.phase(epoch=0, name="checkpoint")

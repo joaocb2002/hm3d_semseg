@@ -1,4 +1,4 @@
-"""PyTorch-compatible offline dataset with native aspect ratio."""
+"""PyTorch-compatible offline dataset with explicit paired augmentation."""
 
 from __future__ import annotations
 
@@ -12,7 +12,14 @@ from PIL import Image
 from hm3d_semseg.config.schema import AugmentationConfig
 from hm3d_semseg.data.schema import ManifestRecord, load_manifest
 from hm3d_semseg.data.storage import load_mask
-from hm3d_semseg.data.transforms import horizontal_flip, photometric_jitter
+from hm3d_semseg.data.transforms import (
+    horizontal_flip,
+    pad_pair,
+    photometric_distortion,
+    photometric_jitter,
+    random_crop_pair,
+    random_resize_pair,
+)
 from hm3d_semseg.exceptions import OptionalDependencyError
 
 IMAGENET_MEAN = np.asarray([0.485, 0.456, 0.406], dtype=np.float32)
@@ -80,7 +87,7 @@ def records_for_sample_ids(
 
 
 class OfflineSegmentationDataset:
-    """Load manifest records without implicit resizing or label reduction."""
+    """Load manifest records without implicit geometry or label reduction."""
 
     def __init__(
         self,
@@ -132,14 +139,42 @@ class OfflineSegmentationDataset:
             raise ValueError(f"RGB/mask mismatch for sample {record.sample_id}")
         if self.augment:
             rng = np.random.default_rng(self.seed + self.epoch * len(self) + index)
+            if self.augmentation.resize_base_width is not None:
+                rgb, mask = random_resize_pair(
+                    rgb,
+                    mask,
+                    base_width=self.augmentation.resize_base_width,
+                    base_height=int(self.augmentation.resize_base_height),
+                    scale=float(
+                        rng.uniform(
+                            self.augmentation.random_scale_min,
+                            self.augmentation.random_scale_max,
+                        )
+                    ),
+                )
+            if self.augmentation.crop_width is not None:
+                crop_width = self.augmentation.crop_width
+                crop_height = int(self.augmentation.crop_height)
+                rgb, mask = random_crop_pair(
+                    rgb,
+                    mask,
+                    width=crop_width,
+                    height=crop_height,
+                    max_class_fraction=self.augmentation.crop_max_class_fraction,
+                    attempts=self.augmentation.crop_attempts,
+                    rng=rng,
+                )
             if rng.random() < self.augmentation.horizontal_flip_probability:
                 rgb, mask = horizontal_flip(rgb, mask)
-            rgb = photometric_jitter(
-                rgb,
-                self.augmentation.color_jitter,
-                rng.random() < self.augmentation.blur_probability,
-                float(rng.uniform(-1.0, 1.0)),
-            )
+            if self.augmentation.photometric_distortion:
+                rgb = photometric_distortion(rgb, rng)
+            elif self.augmentation.color_jitter or self.augmentation.blur_probability:
+                rgb = photometric_jitter(
+                    rgb,
+                    self.augmentation.color_jitter,
+                    rng.random() < self.augmentation.blur_probability,
+                    float(rng.uniform(-1.0, 1.0)),
+                )
             if self.augmentation.sensor_noise_std:
                 noise = rng.normal(
                     0.0,
@@ -147,6 +182,13 @@ class OfflineSegmentationDataset:
                     size=rgb.shape,
                 )
                 rgb = np.clip(rgb.astype(np.float32) + noise, 0, 255).astype(np.uint8)
+            if self.augmentation.crop_width is not None:
+                rgb, mask = pad_pair(
+                    rgb,
+                    mask,
+                    width=self.augmentation.crop_width,
+                    height=int(self.augmentation.crop_height),
+                )
         normalized = (rgb.astype(np.float32) / 255.0 - IMAGENET_MEAN) / IMAGENET_STD
         return {
             "pixel_values": torch.from_numpy(normalized.transpose(2, 0, 1).copy()),

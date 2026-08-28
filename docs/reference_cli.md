@@ -80,10 +80,10 @@ Current workstation smoke-report example:
 
 ```bash
 hm3d-semseg report-run \
-  --run /home/joaocb2002/hm3d-semseg-data/runs/segformer_b2_baseline_smoke
+  --run /home/joaocb2002/hm3d-semseg-data/runs/segformer_b2_ade20k_recipe_smoke
 ```
 
-Current server candidate-comparison example:
+Historical server candidate-comparison example:
 
 ```bash
 hm3d-semseg compare-runs \

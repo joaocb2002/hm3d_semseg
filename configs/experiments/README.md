@@ -5,41 +5,61 @@ evaluation. `hm3d-semseg train` never fits a calibration temperature.
 
 The separate `hm3d-semseg smoke-test` command is a render-to-inference systems
 check implemented in Python; it is not a training recipe and does not consume
-an experiment YAML. The two files ending in `_smoke.yaml` below are bounded
-training experiments over already-generated datasets.
+an experiment YAML. Files ending in `_smoke.yaml` are bounded training
+experiments over already-generated datasets.
 
 ## Planned sequence
 
-| Config | Train data | Development data | Epochs | Weighting | Purpose |
+| Config | Train data | Development data | Duration | Loss | Purpose |
 |---|---:|---:|---:|---|---|
-| `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 | none | Verify memorization and training mechanics. |
-| `segformer_b2_baseline_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 | none | Exercise baseline training and held-out metrics locally. |
-| `segformer_b2_moderately_balanced_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 | inverse square root | Exercise class-weight computation and the balanced path locally. |
-| `segformer_b2_baseline.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | 20 | none | Full recipe-development candidate on the server. |
-| `segformer_b2_moderately_balanced.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | 20 | inverse square root | Full recipe-development candidate on the server. |
+| `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 epochs | cross-entropy | Verify memorization and training mechanics. |
+| `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 2 epochs, at most 1,000 steps | cross-entropy | Exercise the new spatial and optimizer path locally. |
+| `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Recommended server recipe-development run. |
 
-The smoke runs are integration tests, not evidence for choosing the final
-recipe. Their small subsets can give noisy and biased metrics. The 1,024-image
-training limit gives the scene-diverse selector more views while remaining a
-bounded workstation acceptance run; it approximately doubles the training
-portion relative to the earlier 512-image smoke recipe.
+Smoke runs are integration tests, not recipe-selection evidence. Their small
+subsets give noisy and biased metrics. The old `baseline`,
+`moderately_balanced`, and corresponding smoke files remain checked historical
+controls, but they are not the next recommended commands. The completed
+comparison found no practically meaningful held-out mIoU gain from
+inverse-square-root weighting and worse results on several high-support and
+ObjectNav-relevant measures. The new recipe therefore retains ordinary
+per-pixel cross-entropy and corrects the training pipeline.
+
+The recommended recipe follows the official SegFormer ADE20K configuration in
+the parts portable to this project:
+
+- fit-preserving random resize inside `(2048, 512)` with scale ratio `0.5--2.0`;
+- `512 x 512` category-ratio-aware crop, paired horizontal flip, RGB-only
+  photometric distortion, ImageNet normalization, and target-255 padding;
+- AdamW at `6e-5` for pretrained parameters and `6e-4` for the complete decode
+  head, with no weight decay on one-dimensional normalization/bias parameters;
+- linear 1,500-step warm-up from `1e-6` of base LR, followed by iteration-based
+  linear polynomial decay to zero at 160,000 optimizer steps;
+- a server batch of 16 to use the available 96-GiB single GPU and expose about
+  2.56 million augmented samples over the capped run.
+
+This is an adaptation, not a claim of bit-for-bit reproduction: HM3D/MPCAT40,
+the ADE-pretrained starting checkpoint, a single GPU, and this evaluator differ
+from the original ADE20K experiment. The exact upstream configuration is
+[NVLabs' SegFormer-B2 ADE20K recipe](https://github.com/NVlabs/SegFormer/blob/master/local_configs/segformer/B2/segformer.b2.512x512.ade.160k.py),
+with its separate [ADE20K data pipeline](https://github.com/NVlabs/SegFormer/blob/master/local_configs/_base_/datasets/ade20k_repeat.py).
 
 In this table, **all `train-v1` does not mean `train-all-v1`**. The names refer
 to different dataset roots and different protocol stages:
 
 | Stage | Model input | Role |
 |---|---|---|
-| Recipe development | `train-v1` (130 scenes) | Update weights for the baseline and balanced candidates. |
+| Recipe development | `train-v1` (130 scenes) | Update weights for the recommended candidate. |
 | Recipe selection | `development-v1` (15 disjoint scenes) | Compare held-out metrics and choose the recipe and training duration. It never supplies gradients. |
 | Final refit | `train-all-v1` (all 145 training scenes) | Refit the frozen recipe once using all official training scenes. This is a fresh render, not a concatenation of the other directories. |
 | Final evaluation | `official-val-v1` (36 official validation scenes) | Evaluate the frozen final checkpoint once. It never supplies gradients or selects the recipe. |
 
-After recipe selection, create and commit a distinct checked
-`segformer_b2_final.yaml` based on the winning candidate. It must use
+After the new recipe run is accepted, create and commit a distinct checked
+`segformer_b2_final.yaml` based on it. It must use
 `train-all-v1`, set `development: null`, remove subset limits, use a distinct
 run name, and freeze the preselected duration. The file is deliberately not
-created before the baseline/balanced comparison because its weighting and epoch
-count are not known yet. The final refit uses `checkpoints/last`.
+created before development selects that duration. The final refit uses
+`checkpoints/last`.
 
 `official-val-v1` is absent from every training YAML: it is passed only to the
 later explicit `evaluate` command. The exact protocol is documented in
@@ -72,12 +92,17 @@ later explicit `evaluate` command. The exact protocol is documented in
   for less diagnostic I/O; development capture reuses the existing evaluation
   pass, while train capture adds at most ten unaugmented forward passes.
 - `class_weighting: inverse_sqrt` computes weights only from the selected
-  training pixels for a smoke run and from the complete training manifest for
-  a full run.
+  training pixels. It remains only for reproducing the historical weighted
+  ablation; the recommended recipe sets `class_weighting: none`.
+- `max_optimizer_steps` makes the polynomial schedule iteration-based. `epochs`
+  remains a hard safety cap; training stops when either limit is reached.
+- `head_learning_rate` applies the official ten-times multiplier to the complete
+  SegFormer decode head. Older configs without this key retain their legacy
+  classifier-only fallback.
 - `evaluation` controls held-out metrics. `bootstrap_samples` and
-  `calibration_bins` are statistical reporting settings; they do not fit a
-  temperature. `qualitative_samples: 10` controls the fixed views captured by
-  an explicit later `evaluate` command during its existing inference pass.
+  `calibration_bins` are secondary statistical reporting settings; they do not
+  fit a temperature or affect checkpoint selection. `qualitative_samples: 10`
+  controls fixed views captured during the existing inference pass.
 - `resume: null`, `class_weights: null`, and
   `early_stopping_patience: null` state that those optional behaviors are off.
 
@@ -91,8 +116,8 @@ evaluate   freeze everything; measure calibrated probabilities on
            calibration-evaluation-v1
 ```
 
-Calibration is performed only after the final server-trained model is frozen;
-see [server evaluation and calibration](../../docs/09_server_evaluation_and_calibration.md).
+Calibration is deliberately deferred until the final hard-segmentation model
+is accepted; see [server evaluation and calibration](../../docs/09_server_evaluation_and_calibration.md).
 
 ## Run artifacts
 
@@ -105,8 +130,7 @@ host-specific `paths.runs_root`, normally:
 
 Concrete current examples are
 `/home/joaocb2002/hm3d-semseg-data/runs/overfit_tiny/` on the workstation and
-`/workspace/runs/segformer_b2_baseline/` plus
-`/workspace/runs/segformer_b2_moderately_balanced/` on `knuth`. If a name was
+`/workspace/runs/segformer_b2_ade20k_recipe/` on `knuth`. If a name was
 already occupied, use the exact collision-safe suffixed directory printed by
 training.
 

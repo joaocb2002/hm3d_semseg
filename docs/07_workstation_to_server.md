@@ -8,7 +8,7 @@ artifacts. Those operations belong to steps 8--10.
 ## Entry and exit gates
 
 Enter only after all six dataset roots validate on the workstation and the
-local tiny-overfit plus both bounded smoke runs complete. Exit when:
+local tiny-overfit plus the recommended bounded smoke run complete. Exit when:
 
 1. the server has the exact frozen Git commit;
 2. all six complete dataset roots have transferred and validate;
@@ -21,8 +21,8 @@ run directories do not need to move to the training-only server.
 
 ## 7.1 Complete the local training acceptance suite
 
-Run all three from the workstation training environment after this reporting
-upgrade. Fresh collision-safe run directories are intentional. Generic form:
+Run both from the workstation training environment after changing the recipe.
+Fresh collision-safe run directories are intentional. Generic form:
 
 ```bash
 conda activate hm3d-semseg-train
@@ -34,11 +34,7 @@ hm3d-semseg train \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
-  --local-config configs/local.yaml
-
-hm3d-semseg train \
-  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -54,38 +50,16 @@ hm3d-semseg train \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
-  --local-config configs/local.yaml
-
-hm3d-semseg train \
-  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
 ```
 
 Use the exact directories printed by training. Open each
 `ACTUAL_RUN/report/index.html`; tiny overfit should nearly memorize all four
-views, and both smoke runs should finish held-out evaluation with finite losses
-and aligned ten-view train/development contact sheets. Compare the smoke paths
-as an integration check. Generic form:
-
-```bash
-hm3d-semseg compare-runs \
-  --run /workstation/runs/ACTUAL_BASELINE_SMOKE \
-  --run /workstation/runs/ACTUAL_BALANCED_SMOKE \
-  --output /workstation/runs/comparisons/smoke
-```
-
-Current workstation form:
-
-```bash
-hm3d-semseg compare-runs \
-  --run /home/joaocb2002/hm3d-semseg-data/runs/ACTUAL_BASELINE_SMOKE \
-  --run /home/joaocb2002/hm3d-semseg-data/runs/ACTUAL_BALANCED_SMOKE \
-  --output /home/joaocb2002/hm3d-semseg-data/runs/comparisons/smoke
-```
-
-The smoke comparison proves reporting and evaluation mechanics; its 1,024/256
-subsets are too small to select the final recipe.
+views. The ADE20K-recipe smoke run must finish its 1,000-step cap, held-out
+evaluation, fixed-shape augmentation, polynomial scheduler, and report with
+finite values. Its 1,024/256 subsets are too small to judge the recipe's
+generalization.
 
 ## 7.2 Freeze the workstation source
 

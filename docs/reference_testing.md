@@ -63,10 +63,10 @@ the same as the checked `_smoke.yaml` training experiments.
 | Gate | Machine | Required evidence |
 |---|---|---|
 | Renderer/taxonomy | Workstation `habitat` env | Camera, scene inspection, audits, pilot, and six roots validate. |
-| Training mechanics | Workstation training env | Tiny overfit memorizes; baseline and balanced bounded smoke runs complete. |
+| Training mechanics | Workstation training env | Tiny overfit memorizes; the ADE20K-recipe bounded smoke run completes. |
 | Server acceptance | GPU server | Exact SHA/data/model snapshot; unit/install tests; transferred roots validate; tiny overfit succeeds on CUDA. |
-| Recipe development | GPU server | Full baseline and balanced runs produce complete held-out development reports. |
-| Final protocol | GPU server | Frozen recipe refits on `train-all-v1`; official evaluation and disjoint calibration complete. |
+| Recipe development | GPU server | The full ADE20K-style run produces a complete held-out development report. |
+| Final protocol | GPU server | Frozen recipe refits on `train-all-v1`; official hard-segmentation evaluation completes. Calibration may follow later. |
 | Deployment | Workstation/ObjectNav host | Returned checksums, inference, camera assertion, and target-GPU benchmark pass. |
 
 Training-only servers do not need Habitat tests. Workstations without the

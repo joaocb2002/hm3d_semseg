@@ -42,10 +42,12 @@ Success means no missing/duplicate/undecodable sample, only targets 0–40 or 25
 matching RGB/mask dimensions, no scene crossing split labels, consistent
 camera/taxonomy hashes, and reported unknown/ignored fractions.
 
-The loader preserves native shape. It applies ImageNet normalization associated
-with the pretrained checkpoint but no implicit square resize or label reduction.
-Horizontal flips affect RGB and mask together; masks use nearest interpolation;
-photometric jitter affects RGB only. Class zero remains zero.
+Samples are stored at native camera shape. Evaluation and inference preserve
+that shape and apply no implicit square resize or label reduction. A training
+experiment may explicitly request paired random resize/crop/pad augmentation;
+RGB and mask always receive identical geometry, masks use nearest interpolation,
+RGB-only photometry never touches targets, padding targets are 255, and class
+zero remains zero. Tiny overfit explicitly disables all augmentation.
 
 Scene lists—not rendered frames—define fit/development/calibration partitions.
 Never randomly split the manifest.

@@ -1,45 +1,37 @@
 # 8. Server training: recipe development and final refit
 
 **Execution location: GPU server.** Start only after step 7 accepts the server.
-This stage changes SegFormer weights but performs no temperature calibration and
-does not use `official-val-v1` labels. It has two distinct phases:
+This stage updates SegFormer weights. It does not use `official-val-v1` and does
+not fit a calibration temperature.
 
-1. compare candidate recipes trained on `train-v1` and selected on the
-   scene-disjoint `development-v1`;
-2. freeze the winning recipe and duration, then refit it once on
-   `train-all-v1` with no development selection.
+There are two separate runs:
 
-The current server is `knuth`; source, data, runs, and cache are respectively
-under `/workspace/repository/hm3d-semseg`, `/workspace/data`,
-`/workspace/runs`, and `/workspace/cache`.
+1. train on `train-v1`, evaluate every epoch on scene-disjoint
+   `development-v1`, and select a checkpoint by development known-class mIoU;
+2. start again from the pinned ADE checkpoint and refit the frozen recipe on
+   `train-all-v1` for the selected optimizer-step count.
+
+The current `knuth` roots are `/workspace/repository/hm3d-semseg` for source,
+`/workspace/data` for datasets, `/workspace/runs` for artifacts, and
+`/workspace/cache` for the pinned model snapshot.
 
 ## 8.1 Enter a durable one-GPU session
 
-Generic direct-server session:
+Generic direct-server form:
 
 ```bash
 tmux new -s hm3d-training
-```
-
-Then, inside the new session:
-
-```bash
 source /path/to/miniconda/etc/profile.d/conda.sh
 conda activate hm3d-semseg-train
 export PYTHONNOUSERSITE=1
 export CUDA_VISIBLE_DEVICES=GPU_INDEX
-cd /server/project/root/repository/hm3d-semseg
+cd /server/repository/hm3d-semseg
 ```
 
-Current `knuth` form when physical GPU 0 is assigned:
+Current `knuth` form when GPU 0 is assigned:
 
 ```bash
 tmux new -s hm3d-training
-```
-
-Then, inside that session:
-
-```bash
 source /workspace/miniconda/etc/profile.d/conda.sh
 conda activate hm3d-semseg-train
 export PYTHONNOUSERSITE=1
@@ -47,190 +39,193 @@ export CUDA_VISIBLE_DEVICES=0
 cd /workspace/repository/hm3d-semseg
 ```
 
-Detach with `Ctrl-b`, then `d`; list sessions with `tmux ls`; reattach with
-`tmux attach -t hm3d-training`. If the site later introduces Slurm/PBS/LSF,
-replace direct `tmux` execution with the required one-GPU job allocation while
-keeping all commands and artifact roots unchanged.
+Detach with `Ctrl-b`, then `d`; list with `tmux ls`; reattach with
+`tmux attach -t hm3d-training`. If the site introduces a scheduler, obtain one
+GPU through that scheduler instead of launching compute on a login node. The
+training command and persistent roots remain the same.
 
-## 8.2 Know which command changes what
+## 8.2 Freeze the loss decision
 
-| Command | Updates SegFormer weights | Uses held-out labels | Fits temperature |
-|---|---:|---:|---:|
-| `train` | yes | only if `training.datasets.development` is non-null | no |
-| `evaluate` | no | yes, from the explicit dataset | no |
-| `calibrate` | no | only the explicit calibration-fit dataset | yes, one scalar |
+The completed baseline-versus-inverse-square-root comparison did not show a
+meaningful held-out mIoU advantage for class weighting and made several
+high-support/ObjectNav-relevant results worse. The next recipe therefore uses
+ordinary per-valid-pixel cross-entropy. Lovasz, Dice, focal loss, oversampling,
+and taxonomy changes are not added simultaneously with the pipeline correction.
+They remain possible future controlled ablations only if the corrected recipe
+still has a specific, evidenced failure.
 
-The whole SegFormer-B2 model is fine-tuned. AdamW gives pretrained encoder
-parameters a lower learning rate and the new 41-class decode head a ten-times
-higher rate. Both are multiplied by the same warm-up/cosine schedule. Loss is
-per-pixel cross-entropy on raw logits; target 255 is ignored and class 0 remains
-learnable. See the [metrics reference](reference_losses_metrics_and_artifacts.md)
-for notation, formulas, and artifact locations.
+The ADE20K checkpoint does **not** output ADE labels during this project. Loading
+replaces its 150-class classifier with a randomly initialized 41-class
+classifier; targets come only from the HM3D-to-MPCAT40 mapping. ADE pretraining
+supplies transferable features and the rest of the decode head. Confusions such
+as stool versus chair or blinds versus window are therefore not old ADE class
+IDs leaking into predictions. They reflect visual/taxonomic ambiguity and
+cross-scene generalization, which this run addresses first through stronger
+scale, crop, and photometric diversity.
 
-## 8.3 Candidate A: unweighted baseline
+## 8.3 Know the recommended recipe
+
+`configs/experiments/segformer_b2_ade20k_recipe.yaml` adapts the official
+SegFormer-B2 ADE20K recipe:
+
+| Component | Frozen setting |
+|---|---|
+| Objective | unweighted cross-entropy; target 255 ignored; class 0 learnable |
+| Train geometry | random fit-preserving `(2048, 512)` resize at scale `0.5--2.0`, category-aware `512 x 512` crop, pad with target 255 |
+| RGB augmentation | horizontal flip 0.5 and ADE-style photometric distortion |
+| Optimizer | AdamW, weight decay 0.01 except normalization/bias parameters |
+| Learning rates | pretrained parameters `6e-5`; complete decode head `6e-4` |
+| Schedule | 1,500-step linear warm-up from factor `1e-6`, then power-1 polynomial decay to zero at step 160,000 |
+| Server batch | 16 on one 96-GiB GPU, AMP enabled, 8 loader workers |
+| Selection | highest development known-class mIoU; development never supplies gradients |
+
+The published configuration uses the same resize/crop family, cross-entropy,
+AdamW settings, head multiplier, linear warm-up, polynomial decay, and 160k
+iteration horizon. This repository intentionally keeps `reduce_labels=false`
+because MPCAT40 class 0 is a real `unknown` output, not ADE's background rule.
+
+This is a close protocol adaptation, not a claim of reproducing ADE20K: the
+dataset, taxonomy, pretrained starting point, single-GPU execution, and
+evaluation partitions differ. Upstream references are the
+[official B2 recipe](https://github.com/NVlabs/SegFormer/blob/master/local_configs/segformer/B2/segformer.b2.512x512.ade.160k.py)
+and [official data pipeline](https://github.com/NVlabs/SegFormer/blob/master/local_configs/_base_/datasets/ade20k_repeat.py).
+
+## 8.4 Pull the frozen commit and verify the resolved recipe
+
+Do not pull into an active older training process. After that process finishes,
+record its commit and run these commands in the new session.
+
+Generic form:
+
+```bash
+cd /server/repository/hm3d-semseg
+git status --short
+git fetch origin
+git checkout COMMITTED_SHA
+python -m pytest -m unit
+ruff check .
+```
+
+Current `knuth` form:
+
+```bash
+cd /workspace/repository/hm3d-semseg
+git status --short
+git fetch origin
+git checkout COMMITTED_SHA
+python -m pytest -m unit
+ruff check .
+```
+
+`git status --short` must be empty before checkout. Replace `COMMITTED_SHA` with
+the workstation commit produced after this change; do not train an uncommitted
+server-only edit.
+
+Inspect the scientific fields without starting training:
+
+```bash
+python - <<'PY'
+from pathlib import Path
+from hm3d_semseg.config import load_config
+
+config = load_config(
+    Path("configs/experiments/segformer_b2_ade20k_recipe.yaml"),
+    Path("configs/local.yaml"),
+)
+print(config.training.train_dataset)
+print(config.training.development_dataset)
+print(config.training.batch_size, config.training.max_optimizer_steps)
+print(config.training.learning_rate_schedule, config.training.warmup_steps)
+print(config.augmentation)
+PY
+```
+
+On `knuth`, the first two lines must be `/workspace/data/train-v1` and
+`/workspace/data/development-v1`; the batch/step line must be `16 160000`.
+
+## 8.5 Run recipe development
+
+Generic command:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_baseline.yaml \
+  --config configs/experiments/segformer_b2_ade20k_recipe.yaml \
   --local-config configs/local.yaml
 ```
 
-Current expected first-run directory:
+The current command is identical after entering
+`/workspace/repository/hm3d-semseg`. The expected first output is:
 
 ```text
-/workspace/runs/segformer_b2_baseline/
+/workspace/runs/segformer_b2_ade20k_recipe/
 ```
 
-If that name already exists, training safely allocates `-002`, `-003`, and so
-on. Always use the actual directory printed at startup. This candidate gives
-every valid pixel equal loss weight.
+If that directory exists, training safely allocates `-002`, `-003`, and so on.
+Always record the actual path printed at startup. During the first few hundred
+steps, check `nvidia-smi`: memory should be stable, samples/s finite, and GPU
+utilization generally high. Do not change batch size during a run. If batch 16
+unexpectedly fails on the 96-GiB GPU, stop and commit a reviewed fallback using
+batch 8 with gradient accumulation 2; that preserves the effective batch of 16
+and the optimizer-step schedule.
 
-## 8.4 Candidate B: moderately balanced
+The 51,215-sample training manifest gives about 3,201 optimizer steps per full
+epoch at batch 16. The 50-epoch guard is slightly longer than needed; the
+explicit 160,000-step cap is authoritative and stops the final partial epoch.
+Every completed epoch evaluates the complete development manifest and updates
+`checkpoints/best` only when known-class mIoU improves.
 
-```bash
-hm3d-semseg train \
-  --config configs/experiments/segformer_b2_moderately_balanced.yaml \
-  --local-config configs/local.yaml
-```
+## 8.6 Monitor and accept development evidence
 
-Current expected first-run directory:
-
-```text
-/workspace/runs/segformer_b2_moderately_balanced/
-```
-
-This candidate changes only the training loss weighting: inverse-square-root
-weights are computed from `train-v1` pixel counts, normalized over supported
-classes, capped at 5, and recorded with a checksum. Development loss and metrics
-remain unweighted, so the two candidates are directly comparable. Do not add
-class-aware oversampling to this comparison.
-
-## 8.5 Select the recipe on development evidence
-
-`checkpoints/best` for both candidates is selected by the highest development
-known-class mIoU, not by training loss. Development images never provide
-gradients. Do not inspect `official-val-v1` while choosing.
-
-Generic compact inspection:
+For the current run:
 
 ```bash
 jq '{best: .development.best_known_class_miou,
      final: .development.final,
      optimization: .training.optimization}' \
-  /server/project/root/runs/RUN_NAME/metrics_summary.json
+  /workspace/runs/segformer_b2_ade20k_recipe/metrics_summary.json
+
+jq '{epoch, step, primary_metric}' \
+  /workspace/runs/segformer_b2_ade20k_recipe/checkpoints/best/checkpoint.json
 ```
 
-Current baseline example:
+Use the actual suffixed directory if necessary. Open
+`/workspace/runs/ACTUAL_RUN/report/index.html` through VS Code Remote SSH. Read
+the evidence in this order:
 
-```bash
-jq '{best: .development.best_known_class_miou,
-     final: .development.final,
-     optimization: .training.optimization}' \
-  /workspace/runs/segformer_b2_baseline/metrics_summary.json
-```
+1. best development known-class mIoU and whether it improves materially over
+   the historical baseline;
+2. ObjectNav-six and per-class IoU, especially the prior systematic confusions;
+3. global-pixel versus scene-macro mIoU and their per-scene distribution;
+4. development cross-entropy and the train/development gap;
+5. fixed qualitative development views across epochs;
+6. finite gradients, AMP skips, throughput, and peak GPU memory.
 
-Current balanced example:
+Training cross-entropy diagnoses optimization; it does not select the model.
+Calibration metrics, risk-coverage, ECE, and temperature are secondary here and
+must not rescue a poor hard segmentation model. A rising development loss with
+flat mIoU still indicates worsening probability fit even if the argmax masks
+stop changing.
 
-```bash
-jq '{best: .development.best_known_class_miou,
-     final: .development.final,
-     optimization: .training.optimization}' \
-  /workspace/runs/segformer_b2_moderately_balanced/metrics_summary.json
-```
-
-Use the actual suffixed run directory if applicable. Compare, in this order:
-
-1. best development known-class mIoU;
-2. per-class IoU and ObjectNav-six mIoU at that epoch;
-3. scene-macro mean, median, and bootstrap interval;
-4. confusion patterns and qualitative predictions;
-5. development-curve stability rather than a one-epoch spike;
-6. finite loss/gradients, memory headroom, and throughput.
-
-Training loss diagnoses optimization but cannot select the model that
-generalizes best. A tiny mIoU difference inside broad scene-bootstrap intervals
-is weak evidence; prefer the simpler baseline unless balancing gives a clear,
-repeatable improvement in the classes that matter.
-
-Each newly completed run automatically builds a static report at
-`RUN/report/index.html`. It contains the run card, warnings, checkpoint table,
-sortable epoch/per-class tables, robustly aggregated optimization plots,
-development curves, and fixed qualitative sets. The JSON/JSONL files remain
-the authority; the report is a replaceable presentation layer.
-
-Generic commands to build or refresh reports and compare candidates are:
-
-```bash
-hm3d-semseg report-run --run /server/runs/BASELINE_RUN
-hm3d-semseg report-run --run /server/runs/BALANCED_RUN
-
-hm3d-semseg compare-runs \
-  --run /server/runs/BASELINE_RUN \
-  --run /server/runs/BALANCED_RUN \
-  --output /server/runs/comparisons/baseline-vs-balanced
-```
-
-Current `knuth` form, assuming unsuffixed run names:
-
-```bash
-hm3d-semseg report-run \
-  --run /workspace/runs/segformer_b2_baseline
-hm3d-semseg report-run \
-  --run /workspace/runs/segformer_b2_moderately_balanced
-
-hm3d-semseg compare-runs \
-  --run /workspace/runs/segformer_b2_baseline \
-  --run /workspace/runs/segformer_b2_moderately_balanced \
-  --output /workspace/runs/comparisons/baseline-vs-balanced
-```
-
-Open `report/index.html` or `comparisons/baseline-vs-balanced/index.html` from
-the VS Code Remote SSH file explorer. The comparison checks dataset manifests,
-model revision, and seed; compares only held-out metrics; and reports paired
-per-scene differences with a bootstrap interval. It deliberately does not
-compare baseline and balanced training-loss magnitudes because those optimize
-different objectives.
-
-`report-run` can backfill scalar plots and tables for runs created by an older
-commit. It cannot reconstruct predictions for epochs whose checkpoints were
-not retained. Therefore an already-running older server candidate remains
-without the new ten-image development history, but all its existing numerical
-metrics remain valid. Runs started from this commit capture the history during
-training.
-
-For live curves, start a separate session:
+For live inspection, start a second session:
 
 ```bash
 tmux new -s hm3d-tensorboard
-```
-
-Inside that session:
-
-```bash
 source /workspace/miniconda/etc/profile.d/conda.sh
 conda activate hm3d-semseg-train
 tensorboard --logdir /workspace/runs --host 127.0.0.1 --port 6006
 ```
 
-In VS Code Remote SSH, forward port 6006 from the **Ports** panel. Static
-HTML/PNG/CSV files remain the archival view. TensorBoard adds zooming,
-smoothing, exact values, wall time, finite/non-finite optimizer health,
-throughput, memory, expanded development metrics, and train/development contact
-sheets for the fixed qualitative sets.
+Forward port 6006 in the VS Code Remote SSH **Ports** panel. TensorBoard is for
+live exploration; the JSONL, checkpoint metadata, static report, and resolved
+configuration remain the archival evidence.
 
-## 8.6 Freeze the final recipe and duration
+## 8.7 Freeze and run the final refit
 
-Once the comparison is accepted, write down:
-
-- selected candidate and its run directory;
-- selected development epoch and known-class mIoU;
-- final epoch count (normally selected zero-based epoch plus one);
-- seed, augmentation, batch/accumulation semantics, learning rates, weighting,
-  and all environment/source provenance.
-
-Create a distinct checked experiment such as
-`configs/experiments/segformer_b2_final.yaml` on the workstation. Base it on
-the selected candidate, then change only the final-protocol fields:
+Do not create the final experiment until the recipe-development report is
+accepted. Read the exact best optimizer step from
+`checkpoints/best/checkpoint.json`. On the workstation, copy
+`segformer_b2_ade20k_recipe.yaml` to a new checked
+`configs/experiments/segformer_b2_final.yaml` and change only:
 
 ```yaml
 training:
@@ -240,26 +235,19 @@ training:
   max_train_samples: null
   max_development_samples: null
   run_name: segformer_b2_final
-  epochs: FROZEN_EPOCH_COUNT
+  epochs: 50
+  max_optimizer_steps: FROZEN_BEST_STEP
+  learning_rate_schedule_steps: 160000
 ```
 
-That file is **planned**, not present in the repository at the time this guide
-was written. Review and commit it on the workstation, push it, then fetch and
-check out that new recorded commit on the server before final refitting. Do not
-edit an untracked scientific config only inside the server clone.
-`FROZEN_EPOCH_COUNT` is intentionally not replaced with a fabricated current
-value: derive it only after the running baseline/balanced development comparison
-is accepted.
+Keeping `learning_rate_schedule_steps: 160000` is important: it reproduces the
+selected learning-rate trajectory while `max_optimizer_steps` stops at the
+preselected checkpoint step. Starting from `checkpoints/best` would be wrong;
+the final run starts fresh from the same pinned ADE checkpoint with
+`resume: null` and exposes all 145 training scenes.
 
-The generic final command is:
-
-```bash
-hm3d-semseg train \
-  --config configs/experiments/FROZEN_FINAL_EXPERIMENT.yaml \
-  --local-config configs/local.yaml
-```
-
-Planned current command after `segformer_b2_final.yaml` is committed:
+Commit and push that final YAML on the workstation, check out its commit on the
+server, then run:
 
 ```bash
 hm3d-semseg train \
@@ -267,21 +255,12 @@ hm3d-semseg train \
   --local-config configs/local.yaml
 ```
 
-Planned current output root:
+The expected root is `/workspace/runs/segformer_b2_final/`. With no development
+split, `checkpoints/last` at the frozen step is the protocol checkpoint;
+`checkpoints/best` only tracks training loss and is not generalization evidence.
 
-```text
-/workspace/runs/segformer_b2_final/
-```
+Every run keeps its resolved configuration, source/environment provenance,
+append-only metrics, human report, TensorBoard events, diagnostics, and complete
+best/last checkpoints below `/workspace/runs`. These artifacts never enter Git.
 
-The final refit receives gradients from all 145 official training scenes. It
-has no development dataset and must not tune against official validation.
-Therefore `checkpoints/last`, at the frozen duration, is the protocol checkpoint;
-`checkpoints/best` in a no-development run merely tracks minimum training epoch
-loss and is not evidence of better generalization.
-
-Every run keeps `metrics.jsonl`, `metrics_summary.json`, `summary.json`,
-`resolved_config.yaml`, `provenance.json`, TensorBoard events, plots,
-diagnostics, the derived `report/`, and atomic best/last checkpoints under
-`/workspace/runs`. These artifacts never enter Git.
-
-Next: [evaluate and calibrate the frozen final checkpoint](09_server_evaluation_and_calibration.md).
+Next: [evaluate the frozen final checkpoint](09_server_evaluation_and_calibration.md).

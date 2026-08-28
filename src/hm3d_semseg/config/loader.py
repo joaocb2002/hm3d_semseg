@@ -165,7 +165,42 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError(
             "dataset.split must be train, val, or minival; private test is inaccessible"
         )
-    if config.augmentation.sensor_noise_std < 0:
+    augmentation = config.augmentation
+    paired_resize = (
+        augmentation.resize_base_width,
+        augmentation.resize_base_height,
+    )
+    if (paired_resize[0] is None) != (paired_resize[1] is None):
+        raise ConfigurationError(
+            "augmentation.resize_base_width and resize_base_height must be set together"
+        )
+    if any(value is not None and value <= 0 for value in paired_resize):
+        raise ConfigurationError("augmentation resize dimensions must be positive")
+    paired_crop = (augmentation.crop_width, augmentation.crop_height)
+    if (paired_crop[0] is None) != (paired_crop[1] is None):
+        raise ConfigurationError(
+            "augmentation.crop_width and crop_height must be set together"
+        )
+    if any(value is not None and value <= 0 for value in paired_crop):
+        raise ConfigurationError("augmentation crop dimensions must be positive")
+    if augmentation.random_scale_min <= 0:
+        raise ConfigurationError("augmentation.random_scale_min must be positive")
+    if augmentation.random_scale_max < augmentation.random_scale_min:
+        raise ConfigurationError(
+            "augmentation.random_scale_max must be at least random_scale_min"
+        )
+    if not 0.0 < augmentation.crop_max_class_fraction <= 1.0:
+        raise ConfigurationError(
+            "augmentation.crop_max_class_fraction must be in (0, 1]"
+        )
+    if augmentation.crop_attempts <= 0:
+        raise ConfigurationError("augmentation.crop_attempts must be positive")
+    for key in ("horizontal_flip_probability", "blur_probability"):
+        if not 0.0 <= getattr(augmentation, key) <= 1.0:
+            raise ConfigurationError(f"augmentation.{key} must be in [0, 1]")
+    if augmentation.color_jitter < 0:
+        raise ConfigurationError("augmentation.color_jitter must be nonnegative")
+    if augmentation.sensor_noise_std < 0:
         raise ConfigurationError("augmentation.sensor_noise_std must be nonnegative")
     if not 0.0 <= config.sampling.class_aware_fraction <= 1.0:
         raise ConfigurationError("sampling.class_aware_fraction must be in [0, 1]")
@@ -183,6 +218,56 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError("sampling.floor_separation_m must be positive")
     if not 0.0 <= config.training.warmup_fraction < 1.0:
         raise ConfigurationError("training.warmup_fraction must be in [0, 1)")
+    if config.training.warmup_steps is not None:
+        if config.training.warmup_steps < 0:
+            raise ConfigurationError("training.warmup_steps must be nonnegative")
+        if config.training.warmup_fraction != 0.0:
+            raise ConfigurationError(
+                "Set either training.warmup_steps or a nonzero warmup_fraction, not both"
+            )
+    if not 0.0 <= config.training.warmup_start_factor <= 1.0:
+        raise ConfigurationError("training.warmup_start_factor must be in [0, 1]")
+    if config.training.learning_rate_schedule not in {"cosine", "polynomial"}:
+        raise ConfigurationError(
+            "training.learning_rate_schedule must be 'cosine' or 'polynomial'"
+        )
+    if (
+        config.training.learning_rate_schedule_steps is not None
+        and config.training.learning_rate_schedule_steps <= 0
+    ):
+        raise ConfigurationError(
+            "training.learning_rate_schedule_steps must be positive"
+        )
+    if (
+        config.training.learning_rate_schedule_steps is not None
+        and config.training.max_optimizer_steps is not None
+        and config.training.learning_rate_schedule_steps
+        < config.training.max_optimizer_steps
+    ):
+        raise ConfigurationError(
+            "training.learning_rate_schedule_steps must be at least "
+            "max_optimizer_steps"
+        )
+    if (
+        config.training.learning_rate_schedule_steps is not None
+        and config.training.warmup_steps is not None
+        and config.training.warmup_steps >= config.training.learning_rate_schedule_steps
+    ):
+        raise ConfigurationError(
+            "training.warmup_steps must be smaller than learning_rate_schedule_steps"
+        )
+    if config.training.polynomial_power <= 0:
+        raise ConfigurationError("training.polynomial_power must be positive")
+    if (
+        config.training.head_learning_rate is not None
+        and config.training.head_learning_rate <= 0
+    ):
+        raise ConfigurationError("training.head_learning_rate must be positive")
+    if (
+        config.training.max_optimizer_steps is not None
+        and config.training.max_optimizer_steps <= 0
+    ):
+        raise ConfigurationError("training.max_optimizer_steps must be positive")
     dataset_name_pattern = r"[A-Za-z0-9][A-Za-z0-9._-]*"
     for key, value in (
         ("train", config.training.datasets.train),
