@@ -1,0 +1,70 @@
+# Controlled follow-up to segformer_b2_generalization_probe.yaml. The encoder
+# LR is the only experimental change: 2e-5 lies between the stable 6e-6 probe
+# and the over-specializing 6e-5 ADE20K-style run.
+model:
+  model_id: nvidia/segformer-b2-finetuned-ade-512-512
+  revision: null  # Host-pinned revision comes from configs/local.yaml.
+  num_labels: 41
+  align_corners: false
+  local_files_only: true
+training:
+  datasets:
+    train: train-v1
+    development: development-v1
+  seed: 2027
+  deterministic_algorithms: false
+  device: auto
+  max_train_samples: null
+  max_development_samples: null
+  sample_selection: scene_diverse
+  development_sample_selection: scene_diverse
+  evaluate_train_subset: true
+  train_subset_evaluation_samples: 2048
+  save_min_development_loss_checkpoint: true
+  qualitative_samples: 10
+  qualitative_every_epochs: 1
+  run_name: segformer_b2_generalization_probe_intermediate_lr
+  epochs: 15
+  max_optimizer_steps: 48000
+  batch_size: 16
+  workers: 8
+  # Same head LR as the stable probe. Only pretrained encoder adaptation is
+  # increased, from 6e-6 to 2e-5; the older 160k run used 6e-5.
+  encoder_learning_rate: 0.00002
+  head_learning_rate: 0.0006
+  weight_decay: 0.01
+  learning_rate_schedule: polynomial
+  learning_rate_schedule_steps: 48000
+  polynomial_power: 1.0
+  warmup_fraction: 0.0
+  warmup_steps: 500
+  warmup_start_factor: 0.000001
+  gradient_accumulation_steps: 1
+  gradient_clip_norm: 1.0
+  amp: true
+  resume: null
+  class_weights: null
+  class_weighting: none
+  class_weight_cap: 5.0
+  early_stopping_patience: 5
+augmentation:
+  resize_base_width: 2048
+  resize_base_height: 512
+  random_scale_min: 0.5
+  random_scale_max: 2.0
+  crop_width: 512
+  crop_height: 512
+  crop_max_class_fraction: 0.75
+  crop_attempts: 10
+  horizontal_flip_probability: 0.5
+  photometric_distortion: true
+  color_jitter: 0.0
+  blur_probability: 0.0
+  sensor_noise_std: 0.0
+evaluation:
+  batch_size: 8
+  workers: 8
+  qualitative_samples: 10
+  bootstrap_seed: 2027
+  bootstrap_samples: 1000
+  calibration_bins: 15

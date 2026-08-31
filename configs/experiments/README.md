@@ -14,8 +14,9 @@ experiments over already-generated datasets.
 |---|---:|---:|---:|---|---|
 | `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 epochs | cross-entropy | Verify memorization and training mechanics. |
 | `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 2 epochs, at most 1,000 steps | cross-entropy | Exercise the new spatial and optimizer path locally. |
-| `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Recommended server recipe-development run. |
+| `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Historical official-style reference; retain for reproduction, not as the next run. |
 | `segformer_b2_generalization_probe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Test whether gentler encoder adaptation improves early held-out behavior and measure a deterministic train/development hard-metric gap. |
+| `segformer_b2_generalization_probe_intermediate_lr.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Controlled next comparison: change only encoder LR from `6e-6` to `2e-5` while keeping the stable probe protocol fixed. |
 
 Smoke runs are integration tests, not recipe-selection evidence. Their small
 subsets give noisy and biased metrics. The old `baseline`,
@@ -26,7 +27,14 @@ inverse-square-root weighting and worse results on several high-support and
 ObjectNav-relevant measures. The new recipe therefore retains ordinary
 per-pixel cross-entropy and corrects the training pipeline.
 
-The recommended recipe follows the official SegFormer ADE20K configuration in
+The 48,000-step `generalization_probe` is now the stable B2 reference: it kept
+development cross-entropy near `0.82` while matching the historical run's hard
+segmentation metrics within a few tenths of a point. Do not extend that run to
+160,000 steps. The checked `intermediate_lr` follow-up changes exactly one
+optimization variable and asks whether more encoder adaptation can improve
+mIoU and pixel accuracy without restoring the old development-loss divergence.
+
+The historical 160,000-step reference follows the official SegFormer ADE20K configuration in
 the parts portable to this project:
 
 - fit-preserving random resize inside `(2048, 512)` with scale ratio `0.5--2.0`;

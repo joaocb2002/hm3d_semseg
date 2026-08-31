@@ -171,9 +171,42 @@ The train-subset report under `diagnostics/train_subset/` is evaluated with
 `checkpoints/best` and provides the missing like-for-like hard-metric evidence
 needed to distinguish scene overfitting from a shared train/development ceiling.
 
-## 8.6 Run recipe development
+The completed `6e-6` probe reached nearly the same held-out mIoU as the
+160,000-step reference while keeping development cross-entropy substantially
+lower. Its hard metrics nevertheless plateaued and retained a measurable
+train/development gap. Preserve that run as the stable comparison; do not
+resume it after its learning-rate schedule has reached zero.
 
-Generic command:
+### 8.5.1 Run the controlled intermediate-encoder-LR follow-up
+
+The next recipe-development command changes only the encoder learning rate
+from `6e-6` to `2e-5`. The head LR, seed, data, augmentations, schedule length,
+diagnostics, checkpoint rules, and evaluation set remain identical:
+
+```bash
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_generalization_probe_intermediate_lr.yaml \
+  --local-config configs/local.yaml
+```
+
+On `knuth`, run it from `/workspace/repository/hm3d-semseg`. Expect the run
+root `/workspace/runs/segformer_b2_generalization_probe_intermediate_lr`, with
+a collision-safe suffix when needed. Compare its `index.html` directly with
+the stable probe. Accept the higher LR only if development hard metrics improve
+while cross-entropy remains bounded and the deterministic train/development
+gap does not materially worsen. Do not inspect `official-val-v1` during this
+comparison.
+
+This run is deliberately not accompanied by another subset smoke YAML: the
+learning-rate scalar uses the already-tested optimizer path, while a 1,024-view
+smoke metric cannot select between learning rates. Configuration unit tests
+enforce that LR and run name are the only differences between the two full
+probes.
+
+## 8.6 Reproduce the historical 160,000-step reference only when needed
+
+The following run is retained for provenance and controlled reproduction. It
+is not the next recommended command after the intermediate-LR experiment:
 
 ```bash
 hm3d-semseg train \
@@ -204,16 +237,16 @@ Every completed epoch evaluates the complete development manifest and updates
 
 ## 8.7 Monitor and accept development evidence
 
-For the current run:
+For the current intermediate-LR comparison:
 
 ```bash
 jq '{best: .development.best_known_class_miou,
      final: .development.final,
      optimization: .training.optimization}' \
-  /workspace/runs/segformer_b2_ade20k_recipe/records/metrics_summary.json
+  /workspace/runs/segformer_b2_generalization_probe_intermediate_lr/records/metrics_summary.json
 
-jq '{epoch, step, primary_metric}' \
-  /workspace/runs/segformer_b2_ade20k_recipe/checkpoints/best/checkpoint.json
+jq '{epoch, step, primary_metric, best_development_loss}' \
+  /workspace/runs/segformer_b2_generalization_probe_intermediate_lr/checkpoints/best/checkpoint.json
 ```
 
 Use the actual suffixed directory if necessary. Open
@@ -250,10 +283,11 @@ configuration remain the archival evidence.
 ## 8.8 Freeze and run the final refit
 
 Do not create the final experiment until the recipe-development report is
-accepted. Read the exact best optimizer step from
-`checkpoints/best/checkpoint.json`. On the workstation, copy
-`segformer_b2_ade20k_recipe.yaml` to a new checked
-`configs/experiments/segformer_b2_final.yaml` and change only:
+accepted. Record the winning source YAML, its best epoch and step, and its
+schedule horizon. On the workstation, create a checked
+`configs/experiments/segformer_b2_final.yaml` from that winning recipe—not
+automatically from the historical 160,000-step file—and change the dataset and
+run identity:
 
 ```yaml
 training:
@@ -263,16 +297,18 @@ training:
   max_train_samples: null
   max_development_samples: null
   run_name: segformer_b2_final
-  epochs: 50
-  max_optimizer_steps: FROZEN_BEST_STEP
-  learning_rate_schedule_steps: 160000
+  epochs: FROZEN_FINAL_EPOCHS
+  max_optimizer_steps: FROZEN_FINAL_STEPS
+  learning_rate_schedule_steps: FROZEN_FINAL_SCHEDULE_STEPS
 ```
 
-Keeping `learning_rate_schedule_steps: 160000` is important: it reproduces the
-selected learning-rate trajectory while `max_optimizer_steps` stops at the
-preselected checkpoint step. Starting from `checkpoints/best` would be wrong;
-the final run starts fresh from the same pinned ADE checkpoint with
-`resume: null` and exposes all 145 training scenes.
+Freeze those values only after recipe selection. Because `train-all-v1` is
+larger than `train-v1`, translate the selected duration by full-dataset epochs
+so the final refit receives the same intended number of passes; do not blindly
+reuse either `48,000` or `160,000`. Record the arithmetic in the final YAML's
+comments. Starting from `checkpoints/best` would be wrong: the final run starts
+fresh from the same pinned ADE checkpoint with `resume: null` and exposes all
+145 training scenes.
 
 Commit and push that final YAML on the workstation, check out its commit on the
 server, then run:

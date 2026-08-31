@@ -108,6 +108,33 @@ def test_generalization_probe_uses_full_training_and_bounded_diagnostics() -> No
     assert config.training.early_stopping_patience == 5
 
 
+def test_intermediate_lr_probe_changes_only_encoder_lr_and_run_name() -> None:
+    generated = Path("/tmp/generated")
+    overrides = {"paths": {"generated_data_root": str(generated)}}
+    stable = load_config(
+        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        cli_overrides=overrides,
+    ).to_dict()
+    intermediate = load_config(
+        command_config=_experiment(
+            "segformer_b2_generalization_probe_intermediate_lr.yaml"
+        ),
+        cli_overrides=overrides,
+    ).to_dict()
+
+    assert stable["training"]["encoder_learning_rate"] == pytest.approx(6e-6)
+    assert intermediate["training"]["encoder_learning_rate"] == pytest.approx(2e-5)
+    assert intermediate["training"]["run_name"] == (
+        "segformer_b2_generalization_probe_intermediate_lr"
+    )
+
+    stable["training"]["encoder_learning_rate"] = intermediate["training"][
+        "encoder_learning_rate"
+    ]
+    stable["training"]["run_name"] = intermediate["training"]["run_name"]
+    assert intermediate == stable
+
+
 def test_tiny_overfit_explicitly_disables_development_dataset() -> None:
     config = load_config(
         command_config=_experiment("overfit_tiny.yaml"),
