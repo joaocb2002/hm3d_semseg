@@ -59,9 +59,10 @@ cd /home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final
 sha256sum -c deployment.sha256
 ```
 
-Then inspect `provenance.json`, `resolved_config.yaml`, `summary.json`,
-`metrics_summary.json`, official and optional calibration evaluation summaries,
-and the benchmark. The Git SHA, camera hash, model revision, and dataset
+Then inspect `provenance/provenance.json`, `provenance/resolved_config.yaml`,
+`records/run_summary.json`, `records/metrics_summary.json`, official and
+optional calibration evaluation summaries, and the benchmark. The Git SHA,
+camera hash, model revision, and dataset
 identities must match the accepted server record. If calibration was performed,
 the temperature must also match.
 

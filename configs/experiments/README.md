@@ -15,6 +15,7 @@ experiments over already-generated datasets.
 | `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 epochs | cross-entropy | Verify memorization and training mechanics. |
 | `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 2 epochs, at most 1,000 steps | cross-entropy | Exercise the new spatial and optimizer path locally. |
 | `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Recommended server recipe-development run. |
+| `segformer_b2_generalization_probe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Test whether gentler encoder adaptation improves early held-out behavior and measure a deterministic train/development hard-metric gap. |
 
 Smoke runs are integration tests, not recipe-selection evidence. Their small
 subsets give noisy and biased metrics. The old `baseline`,
@@ -70,19 +71,26 @@ later explicit `evaluate` command. The exact protocol is documented in
 
 - `training.datasets` contains portable dataset directory names. They resolve
   below the host-specific `paths.generated_data_root`; the saved
-  `resolved_config.yaml` records the resulting absolute paths.
+  `provenance/resolved_config.yaml` records the resulting absolute paths.
 - `development: null` disables development evaluation. This is explicit in
   tiny-overfit and cannot be accidentally re-enabled by `configs/local.yaml`.
 - `max_train_samples` and `max_development_samples` are editable positive
   limits. `null` means the complete manifest.
 - Limited train and development sets use their explicit selection strategies
-  and seed. Exact IDs are preserved in `provenance.json`.
+  and seed. Exact IDs are preserved in `provenance/provenance.json`.
 - `deterministic_algorithms: false` keeps the normal high-performance CUDA
   kernels while preserving deterministic sample selection and augmentation.
   Set it to `true` only for a strict same-host reproducibility run; PyTorch then
   rejects unsupported nondeterministic operations instead of silently using
   them. The resolved policy is stored in run provenance.
-- `evaluate_train_subset` is used only for the tiny memorization report.
+- `evaluate_train_subset` requests an unaugmented hard-metric diagnostic after
+  training. `train_subset_evaluation_samples` limits that diagnostic without
+  limiting the data used to update weights. Tiny overfit instead leaves the
+  diagnostic limit null and evaluates its complete four-image training subset.
+- `save_min_development_loss_checkpoint: true` preserves
+  `checkpoints/min_development_loss` in addition to the normal highest-mIoU
+  `checkpoints/best` and final `checkpoints/last`. It does not change early
+  stopping or primary checkpoint selection.
 - `qualitative_samples: 10` fixes up to ten ground-truth-selected views per
   active split. Selection is deterministic, scene-diverse, biased toward broad
   and rare class coverage, and never uses predictions. Tiny overfit therefore
@@ -140,6 +148,6 @@ mixes a fresh run with previous artifacts. See
 contents of each run directory.
 
 The primary human entry point after a run is
-`<actual_run_directory>/report/index.html`. The report is generated
+`<actual_run_directory>/index.html`. The report is generated
 automatically and can be safely rebuilt from raw artifacts with
 `hm3d-semseg report-run --run <actual_run_directory>`.

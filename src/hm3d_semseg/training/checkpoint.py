@@ -69,6 +69,7 @@ def save_checkpoint(
     primary_metric: Optional[float],
     camera_profile_path: Path,
     epochs_without_improvement: int = 0,
+    best_development_loss: Optional[float] = None,
     model_metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Build a complete directory, then atomically swap it into place."""
@@ -83,6 +84,7 @@ def save_checkpoint(
             "step": step,
             "primary_metric": primary_metric,
             "epochs_without_improvement": epochs_without_improvement,
+            "best_development_loss": best_development_loss,
             "optimizer": optimizer.state_dict() if optimizer is not None else None,
             "scheduler": scheduler.state_dict() if scheduler is not None else None,
             "scaler": scaler.state_dict() if scaler is not None else None,
@@ -97,6 +99,7 @@ def save_checkpoint(
             "step": step,
             "primary_metric": primary_metric,
             "epochs_without_improvement": epochs_without_improvement,
+            "best_development_loss": best_development_loss,
         }
         checkpoint_metadata.update(model_metadata or {})
         atomic_write_json(temporary / "checkpoint.json", checkpoint_metadata)
@@ -154,11 +157,13 @@ def update_checkpoint_progress(
     *,
     primary_metric: Optional[float],
     epochs_without_improvement: int,
+    best_development_loss: Optional[float] = None,
 ) -> None:
     """Atomically update post-evaluation state without rewriting model weights."""
     state = load_training_state(checkpoint)
     state["primary_metric"] = primary_metric
     state["epochs_without_improvement"] = epochs_without_improvement
+    state["best_development_loss"] = best_development_loss
     state["python_random_state"] = random.getstate()
     state["numpy_random_state"] = np.random.get_state()
     state["torch_random_state"] = torch_random_state()
@@ -169,4 +174,5 @@ def update_checkpoint_progress(
     metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
     metadata["primary_metric"] = primary_metric
     metadata["epochs_without_improvement"] = epochs_without_improvement
+    metadata["best_development_loss"] = best_development_loss
     atomic_write_json(metadata_path, metadata)

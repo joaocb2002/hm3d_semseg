@@ -143,7 +143,35 @@ PY
 On `knuth`, the first two lines must be `/workspace/data/train-v1` and
 `/workspace/data/development-v1`; the batch/step line must be `16 160000`.
 
-## 8.5 Run recipe development
+## 8.5 Run the bounded generalization probe
+
+Before another 160,000-step recipe-development run, execute the checked probe
+that tests gentler encoder adaptation on the complete recipe-development data:
+
+```bash
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_generalization_probe.yaml \
+  --local-config configs/local.yaml
+```
+
+On `knuth`, run it from `/workspace/repository/hm3d-semseg`. It trains on all
+51,215 `train-v1` frames and evaluates all 3,729 `development-v1` frames. The
+2,048-sample setting limits only the final unaugmented training diagnostic; it
+does not limit weight updates. The run stops at 48,000 optimizer steps, 15
+epochs, or after five epochs without a new development-mIoU best, whichever
+comes first.
+
+Inspect these three complete checkpoints when present:
+
+- `checkpoints/best`: highest development known-class mIoU;
+- `checkpoints/min_development_loss`: lowest development cross-entropy;
+- `checkpoints/last`: final executed epoch.
+
+The train-subset report under `diagnostics/train_subset/` is evaluated with
+`checkpoints/best` and provides the missing like-for-like hard-metric evidence
+needed to distinguish scene overfitting from a shared train/development ceiling.
+
+## 8.6 Run recipe development
 
 Generic command:
 
@@ -174,7 +202,7 @@ explicit 160,000-step cap is authoritative and stops the final partial epoch.
 Every completed epoch evaluates the complete development manifest and updates
 `checkpoints/best` only when known-class mIoU improves.
 
-## 8.6 Monitor and accept development evidence
+## 8.7 Monitor and accept development evidence
 
 For the current run:
 
@@ -182,14 +210,14 @@ For the current run:
 jq '{best: .development.best_known_class_miou,
      final: .development.final,
      optimization: .training.optimization}' \
-  /workspace/runs/segformer_b2_ade20k_recipe/metrics_summary.json
+  /workspace/runs/segformer_b2_ade20k_recipe/records/metrics_summary.json
 
 jq '{epoch, step, primary_metric}' \
   /workspace/runs/segformer_b2_ade20k_recipe/checkpoints/best/checkpoint.json
 ```
 
 Use the actual suffixed directory if necessary. Open
-`/workspace/runs/ACTUAL_RUN/report/index.html` through VS Code Remote SSH. Read
+`/workspace/runs/ACTUAL_RUN/index.html` through VS Code Remote SSH. Read
 the evidence in this order:
 
 1. best development known-class mIoU and whether it improves materially over
@@ -219,7 +247,7 @@ Forward port 6006 in the VS Code Remote SSH **Ports** panel. TensorBoard is for
 live exploration; the JSONL, checkpoint metadata, static report, and resolved
 configuration remain the archival evidence.
 
-## 8.7 Freeze and run the final refit
+## 8.8 Freeze and run the final refit
 
 Do not create the final experiment until the recipe-development report is
 accepted. Read the exact best optimizer step from

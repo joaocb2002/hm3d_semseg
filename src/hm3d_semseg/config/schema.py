@@ -123,6 +123,8 @@ class TrainingConfig:
     sample_selection: str = "manifest_order"
     development_sample_selection: str = "scene_diverse"
     evaluate_train_subset: bool = False
+    train_subset_evaluation_samples: Optional[int] = None
+    save_min_development_loss_checkpoint: bool = False
     qualitative_samples: int = 10
     qualitative_every_epochs: int = 1
     run_name: str = "segformer_b2_baseline"

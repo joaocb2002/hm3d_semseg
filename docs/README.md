@@ -43,5 +43,6 @@ artifact.
 - [CLI reference](reference_cli.md)
 
 Generated datasets, weights, caches, and runs remain outside Git. Scientific
-runs are tied to the Git commit recorded in their `provenance.json`; editing
+runs are tied to the Git commit recorded in their
+`provenance/provenance.json`; editing
 these Markdown guides does not alter an already running server process.

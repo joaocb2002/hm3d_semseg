@@ -1,5 +1,7 @@
 import json
+from html.parser import HTMLParser
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 import pytest
 
@@ -7,6 +9,18 @@ from hm3d_semseg.taxonomy.constants import ID2LABEL, OBJECTNAV_SIX
 from hm3d_semseg.training.reporting import summarize_training_metrics
 
 pytestmark = pytest.mark.unit
+
+
+class _LocalLinkParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.links = []
+
+    def handle_starttag(self, tag: str, attrs: object) -> None:
+        values = dict(attrs)
+        for name in ("href", "src"):
+            if name in values:
+                self.links.append(values[name])
 
 
 def _write_records(path: Path) -> None:
@@ -79,7 +93,7 @@ def test_training_metric_summary_preserves_important_extrema(tmp_path: Path) -> 
     }
 
 
-def test_training_plots_cover_optimization_and_development(
+def test_training_plots_separate_readable_optimization_views(
     tmp_path: Path,
 ) -> None:
     pytest.importorskip("matplotlib")
@@ -92,9 +106,10 @@ def test_training_plots_cover_optimization_and_development(
     created = save_training_plots(metrics, output)
 
     assert {path.name for path in created} == {
-        "loss_and_learning_rate.png",
-        "optimization_diagnostics.png",
-        "development_metrics.png",
+        "training_loss.png",
+        "learning_rates.png",
+        "gradient_and_amp_health.png",
+        "throughput_and_memory.png",
     }
     assert all(path.is_file() for path in created)
 
@@ -109,9 +124,11 @@ def test_static_training_report_keeps_raw_metrics_authoritative(tmp_path: Path) 
 
     assert metrics.is_file()
     assert Path(result["report"]).is_file()
+    assert Path(result["report"]) == tmp_path / "index.html"
     assert (tmp_path / "report" / "summary.md").is_file()
     assert (tmp_path / "report" / "tables" / "epoch_metrics.csv").is_file()
-    assert (tmp_path / "report" / "report_manifest.json").is_file()
+    assert (tmp_path / "records" / "report_data.json").is_file()
+    assert (tmp_path / "provenance" / "artifact_manifest.json").is_file()
     assert "No development evaluation exists" in " ".join(result["warnings"])
 
 
@@ -237,7 +254,7 @@ def test_training_report_explains_global_and_scene_macro_scopes(tmp_path: Path) 
     result = generate_training_report(tmp_path)
 
     html_report = Path(result["report"]).read_text(encoding="utf-8")
-    summary = json.loads((tmp_path / "report" / "summary.json").read_text())
+    summary = json.loads((tmp_path / "records" / "report_data.json").read_text())
     assert "How every headline value is aggregated" in html_report
     assert "It never means an average of image scores" in html_report
     assert "Every other populated metric column below is computed on development" in (
@@ -247,6 +264,51 @@ def test_training_report_explains_global_and_scene_macro_scopes(tmp_path: Path) 
     assert summary["metric_scope_guide"][-1]["reported_value"].startswith(
         "Scene-macro"
     )
+    assert all(path.startswith("report/summary_metrics_plots/") for path in summary["plots"])
+
+
+def test_training_report_reads_and_writes_organized_layout(tmp_path: Path) -> None:
+    from hm3d_semseg.training.report import generate_training_report
+
+    records = tmp_path / "records"
+    records.mkdir()
+    _write_records(records / "metrics.jsonl")
+    _write_evaluation(tmp_path, 0.4, 0.35)
+    evaluation = (
+        tmp_path
+        / "diagnostics"
+        / "epoch_evaluations"
+        / "development"
+        / "epoch_000"
+    )
+    evaluation.parent.mkdir(parents=True)
+    (tmp_path / "evaluation-epoch-000").rename(evaluation)
+
+    result = generate_training_report(tmp_path)
+
+    report_data = json.loads((records / "report_data.json").read_text())
+    assert Path(result["report"]) == tmp_path / "index.html"
+    assert report_data["artifact_layout"] == "organized-training-run-v2"
+    assert report_data["sources"]["metrics_jsonl"] == "records/metrics.jsonl"
+    categories = {Path(path).parent.name for path in report_data["plots"]}
+    assert categories == {
+        "overview",
+        "segmentation",
+        "classes_and_scenes",
+        "probability",
+        "optimization",
+    }
+    assert not (tmp_path / "plots").exists()
+    assert not (tmp_path / "report" / "plots").exists()
+    parser = _LocalLinkParser()
+    parser.feed((tmp_path / "index.html").read_text())
+    local_targets = [
+        tmp_path / unquote(urlsplit(link).path)
+        for link in parser.links
+        if not urlsplit(link).scheme and urlsplit(link).path
+    ]
+    assert local_targets
+    assert all(path.exists() for path in local_targets)
 
 
 def test_compare_runs_uses_held_out_metrics_and_paired_scenes(tmp_path: Path) -> None:

@@ -294,6 +294,13 @@ def _validate(config: ProjectConfig) -> None:
         and config.training.max_development_samples <= 0
     ):
         raise ConfigurationError("training.max_development_samples must be positive")
+    if (
+        config.training.train_subset_evaluation_samples is not None
+        and config.training.train_subset_evaluation_samples <= 0
+    ):
+        raise ConfigurationError(
+            "training.train_subset_evaluation_samples must be positive"
+        )
     if config.training.sample_selection not in {"manifest_order", "scene_diverse"}:
         raise ConfigurationError(
             "training.sample_selection must be 'manifest_order' or 'scene_diverse'"
@@ -308,10 +315,29 @@ def _validate(config: ProjectConfig) -> None:
         )
     if (
         config.training.evaluate_train_subset
+        and config.training.train_subset_evaluation_samples is None
         and config.training.max_train_samples is None
     ):
         raise ConfigurationError(
-            "training.evaluate_train_subset requires training.max_train_samples"
+            "training.evaluate_train_subset requires either "
+            "training.train_subset_evaluation_samples or training.max_train_samples"
+        )
+    if (
+        not config.training.evaluate_train_subset
+        and config.training.train_subset_evaluation_samples is not None
+    ):
+        raise ConfigurationError(
+            "training.train_subset_evaluation_samples requires "
+            "training.evaluate_train_subset: true"
+        )
+    if (
+        config.training.save_min_development_loss_checkpoint
+        and config.training.datasets.development is None
+        and config.training.development_dataset is None
+    ):
+        raise ConfigurationError(
+            "training.save_min_development_loss_checkpoint requires a development "
+            "dataset"
         )
     if config.training.qualitative_samples <= 0:
         raise ConfigurationError("training.qualitative_samples must be positive")

@@ -18,6 +18,30 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import yaml
 
+from hm3d_semseg.training.artifacts import (
+    LAYOUT_NAME,
+    existing_evaluation_path,
+    existing_qualitative_root,
+    iter_development_evaluations,
+    parameter_counts_path,
+    provenance_path,
+    provenance_root,
+    records_root,
+    resolved_config_path,
+    run_summary_path,
+)
+from hm3d_semseg.training.artifacts import (
+    metrics_path as existing_metrics_path,
+)
+from hm3d_semseg.training.artifacts import (
+    metrics_summary_path as existing_metrics_summary_path,
+)
+from hm3d_semseg.training.artifacts import (
+    plots_root as organized_plots_root,
+)
+from hm3d_semseg.training.artifacts import (
+    report_root as organized_report_root,
+)
 from hm3d_semseg.training.report_plots import save_report_plots
 from hm3d_semseg.training.reporting import summarize_training_metrics
 from hm3d_semseg.utils.hashing import (
@@ -45,19 +69,21 @@ EPOCH_COLUMNS = (
 def generate_training_report(run: Path) -> Dict[str, Any]:
     """Build or backfill one self-contained static run report."""
     run = run.resolve()
-    metrics_path = run / "metrics.jsonl"
+    metrics_path = existing_metrics_path(run)
     if not metrics_path.is_file():
         raise ValueError(f"Training metrics do not exist: {metrics_path}")
-    report_root = run / "report"
+    report_root = organized_report_root(run)
     tables_root = report_root / "tables"
-    plots_root = report_root / "plots"
+    plots_root = organized_plots_root(run)
     tables_root.mkdir(parents=True, exist_ok=True)
     plots_root.mkdir(parents=True, exist_ok=True)
+    records_root(run).mkdir(parents=True, exist_ok=True)
+    provenance_root(run).mkdir(parents=True, exist_ok=True)
 
-    run_summary = _read_json(run / "summary.json") or {}
-    provenance = _read_json(run / "provenance.json") or {}
-    parameters = _read_json(run / "parameter_counts.json") or {}
-    resolved = _read_yaml(run / "resolved_config.yaml") or {}
+    run_summary = _read_json(run_summary_path(run)) or {}
+    provenance = _read_json(provenance_path(run)) or {}
+    parameters = _read_json(parameter_counts_path(run)) or {}
+    resolved = _read_yaml(resolved_config_path(run)) or {}
     metrics_summary = summarize_training_metrics(metrics_path)
     evaluations = _load_evaluations(run)
     epoch_rows = _epoch_rows(metrics_path, evaluations)
@@ -124,7 +150,8 @@ def generate_training_report(run: Path) -> Dict[str, Any]:
         "class_weighting", "unknown"
     )
     report_summary = {
-        "schema_version": "1.0",
+        "schema_version": "2.0",
+        "artifact_layout": LAYOUT_NAME,
         "run": str(run),
         "run_name": run.name,
         "facts": facts,
@@ -140,23 +167,33 @@ def generate_training_report(run: Path) -> Dict[str, Any]:
         "best_per_scene": scene_rows,
         "top_confusions": confusion_rows,
         "qualitative": qualitative,
-        "plots": [str(path.relative_to(report_root)) for path in plot_paths],
-        "tables": [str(path.relative_to(report_root)) for path in table_paths],
+        "plots": [str(path.relative_to(run)) for path in plot_paths],
+        "tables": [str(path.relative_to(run)) for path in table_paths],
+        "sources": {
+            "metrics_jsonl": str(metrics_path.relative_to(run)),
+            "metrics_summary": _relative_if_file(
+                existing_metrics_summary_path(run), run
+            ),
+            "run_summary": _relative_if_file(run_summary_path(run), run),
+            "provenance": _relative_if_file(provenance_path(run), run),
+            "resolved_config": _relative_if_file(resolved_config_path(run), run),
+        },
         "raw_artifacts_preserved": True,
     }
-    atomic_write_json(report_root / "summary.json", report_summary)
+    report_data_path = records_root(run) / "report_data.json"
+    atomic_write_json(report_data_path, report_summary)
     atomic_write_text(
         report_root / "summary.md",
         _markdown_summary(report_summary, metrics_summary),
     )
     atomic_write_text(
-        report_root / "index.html",
+        run / "index.html",
         _html_report(report_summary, metrics_summary, parameters, provenance),
     )
     generated = [
-        report_root / "summary.json",
+        report_data_path,
         report_root / "summary.md",
-        report_root / "index.html",
+        run / "index.html",
         *table_paths,
         *plot_paths,
     ]
@@ -167,35 +204,42 @@ def generate_training_report(run: Path) -> Dict[str, Any]:
             "metrics_jsonl_sha256": sha256_file(metrics_path),
             "evaluation_reports": [
                 {
-                    "path": str(
-                        (
-                            run / f"evaluation-epoch-{epoch:03d}" / "summary.json"
-                        ).resolve()
-                    ),
-                    "sha256": sha256_file(
-                        run / f"evaluation-epoch-{epoch:03d}" / "summary.json"
-                    ),
+                    "path": str(path.resolve()),
+                    "sha256": sha256_file(path),
                 }
                 for epoch, _ in evaluations
+                for evaluation_root in [existing_evaluation_path(run, epoch)]
+                if evaluation_root is not None
+                for path in [evaluation_root / "summary.json"]
+                if path.is_file()
             ],
         },
         "generated": [
             {
-                "path": str(path.relative_to(report_root)),
+                "path": str(path.relative_to(run)),
                 "sha256": sha256_file(path),
             }
             for path in generated
             if path.is_file()
         ],
     }
-    atomic_write_json(report_root / "report_manifest.json", manifest)
+    manifest.update(
+        {
+            "artifact_layout": LAYOUT_NAME,
+            "raw_artifacts_preserved": True,
+        }
+    )
+    manifest_path = provenance_root(run) / "artifact_manifest.json"
+    atomic_write_json(manifest_path, manifest)
     return {
         "run": str(run),
-        "report": str(report_root / "index.html"),
+        "report": str(run / "index.html"),
         "summary": str(report_root / "summary.md"),
         "warnings": warnings,
         "plots": len(plot_paths),
+        "plot_paths": [str(path.relative_to(run)) for path in plot_paths],
         "tables": len(table_paths),
+        "artifact_manifest": str(manifest_path),
         "backfilled": True,
     }
 
@@ -221,13 +265,13 @@ def compare_training_runs(runs: Sequence[Path], output: Path) -> Dict[str, Any]:
         best_selection = _best_evaluation(evaluations)
         if best_selection is None:
             raise ValueError(f"Run has no development evaluations: {run}")
-        provenance = _read_json(run / "provenance.json") or {}
+        provenance = _read_json(provenance_path(run)) or {}
         run_data.append((run, evaluations, best_selection, provenance))
 
     comparability = _comparability(run_data)
     overview = []
     for run, evaluations, (epoch, best_report), provenance in run_data:
-        metric_summary = summarize_training_metrics(run / "metrics.jsonl")
+        metric_summary = summarize_training_metrics(existing_metrics_path(run))
         optimization = metric_summary["training"]["optimization"]
         overview.append(
             {
@@ -271,10 +315,7 @@ def compare_training_runs(runs: Sequence[Path], output: Path) -> Dict[str, Any]:
     qualitative = []
     for run, _, (epoch, _), _ in run_data:
         sheet = (
-            run
-            / "diagnostics"
-            / "training_progress"
-            / "qualitative"
+            existing_qualitative_root(run)
             / "development"
             / "contact_sheets"
             / f"epoch_{epoch:03d}.png"
@@ -323,13 +364,10 @@ def compare_training_runs(runs: Sequence[Path], output: Path) -> Dict[str, Any]:
 
 
 def _load_evaluations(run: Path) -> List[Tuple[int, Dict[str, Any]]]:
-    result = []
-    pattern = re.compile(r"evaluation-epoch-(\d+)$")
-    for path in sorted(run.glob("evaluation-epoch-*/summary.json")):
-        match = pattern.match(path.parent.name)
-        if match:
-            result.append((int(match.group(1)), _read_json(path) or {}))
-    return result
+    return [
+        (epoch, _read_json(path) or {})
+        for epoch, path in iter_development_evaluations(run)
+    ]
 
 
 def _epoch_rows(
@@ -616,7 +654,7 @@ def _facts_and_warnings(
 
 
 def _qualitative_history(run: Path) -> Dict[str, List[Dict[str, Any]]]:
-    root = run / "diagnostics" / "training_progress" / "qualitative"
+    root = existing_qualitative_root(run)
     result: Dict[str, List[Dict[str, Any]]] = {"train": [], "development": []}
     for split in result:
         for path in sorted((root / split / "contact_sheets").glob("epoch_*.png")):
@@ -625,7 +663,7 @@ def _qualitative_history(run: Path) -> Dict[str, List[Dict[str, Any]]]:
                 result[split].append(
                     {
                         "epoch": int(match.group(1)) + 1,
-                        "path": Path(os.path.relpath(path, run / "report")).as_posix(),
+                        "path": Path(os.path.relpath(path, run)).as_posix(),
                     }
                 )
     return result
@@ -643,11 +681,12 @@ def _write_csv(path: Path, rows: Sequence[Dict[str, Any]]) -> Path:
 
 
 def _markdown_summary(report: Dict[str, Any], metrics: Dict[str, Any]) -> str:
+    metrics_link = "../" + report["sources"]["metrics_jsonl"]
     lines = [
         f"# Training report: {report['run_name']}",
         "",
-        "This is a derived human-facing report. `../metrics.jsonl` and the per-epoch "
-        "evaluation JSON files remain authoritative.",
+        "This is a derived human-facing report. The linked append-only metric "
+        "log and per-epoch evaluation JSON files remain authoritative.",
         "",
         "## Run facts",
         "",
@@ -693,10 +732,10 @@ def _markdown_summary(report: Dict[str, Any], metrics: Dict[str, Any]) -> str:
             "",
             "## Main files",
             "",
-            "- Open [the interactive static report](index.html).",
+            "- Open [the interactive static report](../index.html).",
             "- Inspect [epoch metrics](tables/epoch_metrics.csv).",
             "- Inspect [best-epoch class metrics](tables/per_class_best.csv).",
-            "- Inspect the original [append-only metric log](../metrics.jsonl).",
+            f"- Inspect the original [append-only metric log]({metrics_link}).",
             "",
         ]
     )
@@ -709,11 +748,7 @@ def _html_report(
     parameters: Dict[str, Any],
     provenance: Dict[str, Any],
 ) -> str:
-    plots = "".join(
-        f'<figure><img src="{html.escape(path)}" loading="lazy">'
-        f"<figcaption>{html.escape(Path(path).stem.replace('_', ' '))}</figcaption></figure>"
-        for path in report["plots"]
-    )
+    plots = _plot_sections_html(report["plots"])
     warnings = "".join(f"<li>{html.escape(value)}</li>" for value in report["warnings"])
     facts = "".join(f"<li>{html.escape(value)}</li>" for value in report["facts"])
     checkpoint_table = _html_table(report["checkpoint_comparison"])
@@ -731,6 +766,19 @@ def _html_report(
     trainable = parameters.get("trainable")
     total = parameters.get("total")
     hardware = provenance.get("device_selection", {}).get("device", "unknown")
+    sources = report["sources"]
+    source_links = " · ".join(
+        f'<a href="{html.escape(path)}">{html.escape(label)}</a>'
+        for label, path in (
+            ("metrics.jsonl", sources["metrics_jsonl"]),
+            ("metrics summary", sources["metrics_summary"]),
+            ("run summary", sources["run_summary"]),
+            ("report data", "records/report_data.json"),
+            ("provenance", sources["provenance"]),
+            ("epoch CSV", "report/tables/epoch_metrics.csv"),
+        )
+        if path is not None
+    )
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>Training report — {html.escape(report["run_name"])}</title>
@@ -760,15 +808,42 @@ code{{background:#edf1f5;padding:2px 5px;border-radius:4px}} .muted{{color:#6170
 <section class="card scope-table"><h2>How every headline value is aggregated</h2><p>Except for values explicitly labelled <b>training</b>, every accuracy, IoU, per-class, per-scene, and probability metric on this page comes from the held-out development set. Normal recipe runs do not perform a second full training-set evaluation.</p><p><b>Global</b> means one confusion matrix pooled over all selected development frames and scenes. It never means an average of image scores. <b>Scene macro</b> deliberately averages already-computed per-scene mIoUs.</p><div class="table-wrap">{scope_table}</div></section>
 <section class="card"><h2>Checkpoint comparison</h2><p>The best checkpoint is selected by development known-class mIoU when development data exists.</p><div class="table-wrap">{checkpoint_table}</div></section>
 <section class="card"><h2>Selected training-subset diagnostic</h2><p>This measures memorization, not held-out generalization.</p><div class="table-wrap">{subset_table}</div></section>
-<section><h2>Curves and diagnostics</h2><div class="grid">{plots}</div></section>
+<section><h2>Curves and diagnostics</h2>{plots}</section>
 {qualitative}
 <section class="card"><h2>Epoch metrics</h2><p>Only <b>training cross-entropy</b> is a training-set value. Every other populated metric column below is computed on development.</p><div class="table-wrap">{epoch_table}</div></section>
 <section class="card"><h2>Best-epoch per-class metrics</h2><div class="table-wrap">{per_class_table}</div></section>
 <section class="card"><h2>Largest best-epoch confusions</h2><p>Rows are true classes; columns are predicted classes.</p><div class="table-wrap">{confusion_table}</div></section>
-<section class="card"><h2>Machine-readable sources</h2><p><a href="../metrics.jsonl">metrics.jsonl</a> · <a href="../metrics_summary.json">metrics_summary.json</a> · <a href="../summary.json">run summary</a> · <a href="../provenance.json">provenance</a> · <a href="tables/epoch_metrics.csv">epoch CSV</a></p></section>
+<section class="card"><h2>Machine-readable sources</h2><p>{source_links}</p></section>
 </main><script>
 document.querySelectorAll('table.sortable th').forEach((th,i)=>th.onclick=()=>{{const t=th.closest('table'),b=t.tBodies[0],r=[...b.rows],a=th.dataset.asc!=='1';r.sort((x,y)=>{{let A=x.cells[i].dataset.value,B=y.cells[i].dataset.value,nA=Number(A),nB=Number(B);return (Number.isFinite(nA)&&Number.isFinite(nB)?nA-nB:A.localeCompare(B))*(a?1:-1)}});r.forEach(x=>b.appendChild(x));th.dataset.asc=a?'1':'0'}});
 </script></body></html>"""
+
+
+def _plot_sections_html(paths: Sequence[str]) -> str:
+    labels = {
+        "overview": "Overview",
+        "segmentation": "Segmentation quality",
+        "classes_and_scenes": "Classes and held-out scenes",
+        "probability": "Probability quality and selective prediction",
+        "optimization": "Optimization and runtime health",
+    }
+    groups: Dict[str, List[str]] = {name: [] for name in labels}
+    for path in paths:
+        category = Path(path).parent.name
+        groups.setdefault(category, []).append(path)
+    sections = []
+    for category, title in labels.items():
+        figures = "".join(
+            f'<figure><a href="{html.escape(path)}"><img src="{html.escape(path)}" '
+            f'loading="lazy"></a><figcaption>'
+            f"{html.escape(Path(path).stem.replace('_', ' '))}</figcaption></figure>"
+            for path in groups.get(category, [])
+        )
+        if figures:
+            sections.append(
+                f"<h3>{html.escape(title)}</h3><div class=\"grid\">{figures}</div>"
+            )
+    return "".join(sections) or "<p>No plots were generated.</p>"
 
 
 def _qualitative_html(history: Dict[str, List[Dict[str, Any]]]) -> str:
@@ -1081,6 +1156,10 @@ def _comparison_html(comparison: Dict[str, Any]) -> str:
 
 def _read_json(path: Path) -> Optional[Dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
+
+
+def _relative_if_file(path: Path, root: Path) -> Optional[str]:
+    return str(path.relative_to(root)) if path.is_file() else None
 
 
 def _read_yaml(path: Path) -> Optional[Dict[str, Any]]:

@@ -55,7 +55,7 @@ hm3d-semseg train \
 ```
 
 Use the exact directories printed by training. Open each
-`ACTUAL_RUN/report/index.html`; tiny overfit should nearly memorize all four
+`ACTUAL_RUN/index.html`; tiny overfit should nearly memorize all four
 views. The ADE20K-recipe smoke run must finish its 1,000-step cap, held-out
 evaluation, fixed-shape augmentation, polynomial scheduler, and report with
 finite values. Its 1,024/256 subsets are too small to judge the recipe's
@@ -434,13 +434,13 @@ For a run produced by the current code, open its generated report directly in
 the VS Code file explorer:
 
 ```text
-/workspace/runs/ACTUAL_OVERFIT_RUN/report/index.html
+/workspace/runs/ACTUAL_OVERFIT_RUN/index.html
 ```
 
 Current first-run path:
 
 ```text
-/workspace/runs/overfit_tiny/report/index.html
+/workspace/runs/overfit_tiny/index.html
 ```
 
 Tiny overfit shows all four selected training views. It has no development

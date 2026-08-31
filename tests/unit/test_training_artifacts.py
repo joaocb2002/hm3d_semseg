@@ -21,12 +21,23 @@ def test_training_artifact_hierarchy_separates_progress_and_subset_diagnostics(
 
     assert (run / "checkpoints").is_dir()
     assert (run / "tensorboard").is_dir()
-    assert (run / "plots").is_dir()
-    qualitative = run / "diagnostics" / "training_progress" / "qualitative"
+    assert (run / "records").is_dir()
+    assert (run / "provenance").is_dir()
+    qualitative = run / "diagnostics" / "qualitative"
     assert (qualitative / "train").is_dir()
     assert (qualitative / "development").is_dir()
+    assert (
+        run / "diagnostics" / "epoch_evaluations" / "development"
+    ).is_dir()
+    assert (run / "diagnostics" / "train_subset").is_dir()
     assert (run / "report" / "tables").is_dir()
-    assert (run / "report" / "plots").is_dir()
+    plot_root = run / "report" / "summary_metrics_plots"
+    assert (plot_root / "overview").is_dir()
+    assert (plot_root / "segmentation").is_dir()
+    assert (plot_root / "classes_and_scenes").is_dir()
+    assert (plot_root / "probability").is_dir()
+    assert (plot_root / "optimization").is_dir()
+    assert not (run / "plots").exists()
     assert not (run / "qualitative").exists()
 
 

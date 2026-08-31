@@ -196,7 +196,7 @@ scenes; return and checksum the complete run; verify inference locally;
 integrate through the Python API; benchmark the actual ObjectNav host.
 
 After every `train` command, open the collision-safe run directory's
-`report/index.html`. It is the human-facing dashboard; raw JSON/JSONL,
+`index.html`. It is the human-facing dashboard; raw JSON/JSONL,
 confusion arrays, checkpoints, and provenance remain the reproducible source
 record. Historical baseline-versus-balanced comparisons remain reproducible,
 but the recommended next run is the unweighted ADE20K-style recipe.

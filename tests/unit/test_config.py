@@ -86,6 +86,28 @@ def test_ade20k_recipe_is_explicit_and_iteration_bounded() -> None:
     assert config.augmentation.photometric_distortion is True
 
 
+def test_generalization_probe_uses_full_training_and_bounded_diagnostics() -> None:
+    generated = Path("/tmp/generated")
+    config = load_config(
+        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        cli_overrides={"paths": {"generated_data_root": str(generated)}},
+    )
+
+    assert config.training.train_dataset == generated / "train-v1"
+    assert config.training.development_dataset == generated / "development-v1"
+    assert config.training.max_train_samples is None
+    assert config.training.max_development_samples is None
+    assert config.training.evaluate_train_subset is True
+    assert config.training.train_subset_evaluation_samples == 2_048
+    assert config.training.save_min_development_loss_checkpoint is True
+    assert config.training.encoder_learning_rate == pytest.approx(6e-6)
+    assert config.training.head_learning_rate == pytest.approx(6e-4)
+    assert config.training.max_optimizer_steps == 48_000
+    assert config.training.learning_rate_schedule_steps == 48_000
+    assert config.training.warmup_steps == 500
+    assert config.training.early_stopping_patience == 5
+
+
 def test_tiny_overfit_explicitly_disables_development_dataset() -> None:
     config = load_config(
         command_config=_experiment("overfit_tiny.yaml"),
@@ -148,6 +170,27 @@ def test_weighting_and_warmup_are_validated() -> None:
         )
     with pytest.raises(ConfigurationError, match=r"training\.evaluate_train_subset"):
         load_config(cli_overrides={"training": {"evaluate_train_subset": True}})
+    with pytest.raises(
+        ConfigurationError, match=r"training\.train_subset_evaluation_samples"
+    ):
+        load_config(
+            cli_overrides={"training": {"train_subset_evaluation_samples": 0}}
+        )
+    with pytest.raises(
+        ConfigurationError, match=r"training\.train_subset_evaluation_samples"
+    ):
+        load_config(
+            cli_overrides={"training": {"train_subset_evaluation_samples": 128}}
+        )
+    with pytest.raises(
+        ConfigurationError,
+        match=r"training\.save_min_development_loss_checkpoint",
+    ):
+        load_config(
+            cli_overrides={
+                "training": {"save_min_development_loss_checkpoint": True}
+            }
+        )
     with pytest.raises(ConfigurationError, match=r"training\.qualitative_samples"):
         load_config(cli_overrides={"training": {"qualitative_samples": 0}})
     with pytest.raises(ConfigurationError, match=r"training\.qualitative_every_epochs"):

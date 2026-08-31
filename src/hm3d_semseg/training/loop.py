@@ -31,6 +31,15 @@ from hm3d_semseg.models.segformer import (
     parameter_groups,
     segmentation_loss,
 )
+from hm3d_semseg.training.artifacts import (
+    development_evaluation_root,
+    development_evaluations_root,
+    plots_root,
+    provenance_root,
+    qualitative_root,
+    records_root,
+    report_root,
+)
 from hm3d_semseg.training.checkpoint import (
     load_training_state,
     restore_random_state,
@@ -38,7 +47,6 @@ from hm3d_semseg.training.checkpoint import (
     update_checkpoint_progress,
 )
 from hm3d_semseg.training.diagnostics import evaluate_training_subset
-from hm3d_semseg.training.plots import save_training_plots
 from hm3d_semseg.training.progress import TrainingProgress
 from hm3d_semseg.training.report import generate_training_report
 from hm3d_semseg.training.reporting import summarize_training_metrics
@@ -152,7 +160,7 @@ def _resolve_class_weights(
         )
         weights[supported] /= weights[supported].mean()
         weights = np.minimum(weights, config.training.class_weight_cap)
-        source = run / "class_weights.npy"
+        source = provenance_root(run) / "class_weights.npy"
         with source.open("wb") as handle:
             np.save(handle, weights, allow_pickle=False)
         policy = "inverse_sqrt"
@@ -161,7 +169,7 @@ def _resolve_class_weights(
     if weights.shape != (41,) or not np.all(np.isfinite(weights)):
         raise ValueError("Class weights must contain exactly 41 finite values")
     atomic_write_json(
-        run / "class_weights.json",
+        provenance_root(run) / "class_weights.json",
         {
             "policy": policy,
             "source": str(source.resolve()),
@@ -177,15 +185,22 @@ def _resolve_class_weights(
 def _prepare_run_directories(run: Path) -> None:
     """Create the stable training-artifact directory hierarchy."""
     for directory in (
-        "checkpoints",
-        "tensorboard",
-        "plots",
-        "diagnostics/training_progress/qualitative/train",
-        "diagnostics/training_progress/qualitative/development",
-        "report/tables",
-        "report/plots",
+        run / "checkpoints",
+        run / "tensorboard",
+        records_root(run),
+        provenance_root(run),
+        qualitative_root(run) / "train",
+        qualitative_root(run) / "development",
+        development_evaluations_root(run),
+        run / "diagnostics" / "train_subset",
+        report_root(run) / "tables",
+        plots_root(run) / "overview",
+        plots_root(run) / "segmentation",
+        plots_root(run) / "classes_and_scenes",
+        plots_root(run) / "probability",
+        plots_root(run) / "optimization",
     ):
-        (run / directory).mkdir(parents=True, exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
 
 
 def _add_tensorboard_image(writer: Any, tag: str, path: Path, epoch: int) -> None:
@@ -290,6 +305,23 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     )
     selected_sample_ids = [record.sample_id for record in selected_records]
     limited_training = config.training.max_train_samples is not None
+    train_subset_evaluation_records: List[ManifestRecord] = []
+    train_subset_evaluation_sample_ids: Optional[List[str]] = None
+    if config.training.evaluate_train_subset:
+        evaluation_limit = (
+            config.training.train_subset_evaluation_samples
+            if config.training.train_subset_evaluation_samples is not None
+            else len(selected_records)
+        )
+        train_subset_evaluation_records = select_manifest_records(
+            selected_records,
+            evaluation_limit,
+            strategy=config.training.sample_selection,
+            seed=config.training.seed,
+        )
+        train_subset_evaluation_sample_ids = [
+            record.sample_id for record in train_subset_evaluation_records
+        ]
     if limited_training:
         progress.message(
             "Selected deterministic training subset: "
@@ -404,9 +436,9 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         if development_records
         else []
     )
-    qualitative_root = run / "diagnostics" / "training_progress" / "qualitative"
+    qualitative_output_root = qualitative_root(run)
     atomic_write_json(
-        qualitative_root / "selection.json",
+        qualitative_output_root / "selection.json",
         selection_report(
             qualitative_train_records,
             qualitative_development_records,
@@ -414,7 +446,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             requested_per_split=config.training.qualitative_samples,
         ),
     )
-    save_resolved_config(config, run / "resolved_config.yaml")
+    save_resolved_config(config, provenance_root(run) / "resolved_config.yaml")
     provenance = collect_provenance(config.paths.habitat_lab_root)
     provenance.update(
         {
@@ -429,6 +461,9 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             "allocated_run": str(run),
             "training_sample_selection": config.training.sample_selection,
             "training_sample_ids": selected_sample_ids if limited_training else None,
+            "train_subset_evaluation_sample_ids": (
+                train_subset_evaluation_sample_ids
+            ),
             "development_sample_selection": development_sample_selection,
             "development_sample_ids": development_sample_ids,
             "qualitative_train_sample_ids": [
@@ -439,7 +474,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             ],
         }
     )
-    atomic_write_json(run / "provenance.json", provenance)
+    atomic_write_json(provenance_root(run) / "provenance.json", provenance)
 
     progress.message(
         f"Loading model: {config.model.model_id}@{config.model.revision or 'unresolved'}"
@@ -525,6 +560,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     start_epoch = 0
     global_step = 0
     best_metric: Optional[float] = None
+    best_development_loss: Optional[float] = None
     epochs_without_improvement = 0
     if source_checkpoint is not None and (source_checkpoint / "training_state.pt").is_file():
         state = load_training_state(source_checkpoint)
@@ -535,6 +571,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         start_epoch = int(state["epoch"]) + 1
         global_step = int(state["step"])
         best_metric = state.get("primary_metric")
+        best_development_loss = state.get("best_development_loss")
         epochs_without_improvement = int(state.get("epochs_without_improvement", 0))
         restore_random_state(state)
 
@@ -551,7 +588,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         _configure_tensorboard_layout(tensorboard)
     except ImportError:
         tensorboard = None
-    metrics_path = run / "metrics.jsonl"
+    metrics_path = records_root(run) / "metrics.jsonl"
     trainable = sum(
         parameter.numel() for parameter in model.parameters() if parameter.requires_grad
     )
@@ -566,7 +603,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         for index, group in enumerate(groups)
     ]
     atomic_write_json(
-        run / "parameter_counts.json",
+        provenance_root(run) / "parameter_counts.json",
         {
             "trainable": trainable,
             "total": total,
@@ -739,18 +776,22 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             train_qualitative = capture_model_qualitative(
                 model,
                 qualitative_train_dataset,
-                qualitative_root / "train",
+                qualitative_output_root / "train",
                 epoch=epoch,
                 device=device,
                 align_corners=config.model.align_corners,
                 ignore_index=config.taxonomy.ignore_index,
             )
-            append_qualitative_epoch(qualitative_root / "train", train_qualitative)
+            append_qualitative_epoch(
+                qualitative_output_root / "train", train_qualitative
+            )
             if tensorboard is not None:
                 _add_tensorboard_image(
                     tensorboard,
                     "qualitative/train_fixed_set",
-                    qualitative_root / "train" / train_qualitative["contact_sheet"],
+                    qualitative_output_root
+                    / "train"
+                    / train_qualitative["contact_sheet"],
                     epoch,
                 )
         progress.phase(epoch=epoch, name="checkpoint")
@@ -765,6 +806,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             primary_metric=best_metric,
             camera_profile_path=camera_path,
             epochs_without_improvement=epochs_without_improvement,
+            best_development_loss=best_development_loss,
             model_metadata=model_metadata,
         )
         primary_metric = -epoch_loss
@@ -773,7 +815,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             evaluation = evaluate_model(
                 run / "checkpoints" / "last",
                 config.training.development_dataset,
-                run / f"evaluation-epoch-{epoch:03d}",
+                development_evaluation_root(run, epoch),
                 config,
                 device=device,
                 sample_ids=development_sample_ids,
@@ -783,13 +825,42 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                     else None
                 ),
                 qualitative_output=(
-                    qualitative_root / "development" if capture_qualitative else None
+                    qualitative_output_root / "development"
+                    if capture_qualitative
+                    else None
                 ),
                 qualitative_epoch=epoch if capture_qualitative else None,
             )
             candidate = evaluation["global"]["known_class_miou"]
             development_loss = evaluation["mean_cross_entropy_loss"]
             primary_metric = float(candidate) if candidate is not None else -epoch_loss
+            if (
+                config.training.save_min_development_loss_checkpoint
+                and development_loss is not None
+                and (
+                    best_development_loss is None
+                    or float(development_loss) < best_development_loss
+                )
+            ):
+                best_development_loss = float(development_loss)
+                save_checkpoint(
+                    run / "checkpoints" / "min_development_loss",
+                    model,
+                    optimizer=optimizer,
+                    scheduler=scheduler,
+                    scaler=scaler,
+                    epoch=epoch,
+                    step=global_step,
+                    primary_metric=-best_development_loss,
+                    camera_profile_path=camera_path,
+                    epochs_without_improvement=epochs_without_improvement,
+                    best_development_loss=best_development_loss,
+                    model_metadata={
+                        **model_metadata,
+                        "selection_metric": "development_cross_entropy",
+                        "selection_value": best_development_loss,
+                    },
+                )
             _append_jsonl(
                 metrics_path,
                 {
@@ -842,7 +913,9 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                     _add_tensorboard_image(
                         tensorboard,
                         "qualitative/development_fixed_set",
-                        qualitative_root / "development" / qualitative["contact_sheet"],
+                        qualitative_output_root
+                        / "development"
+                        / qualitative["contact_sheet"],
                         epoch,
                     )
         improved = best_metric is None or primary_metric > best_metric
@@ -860,6 +933,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 primary_metric=best_metric,
                 camera_profile_path=camera_path,
                 epochs_without_improvement=epochs_without_improvement,
+                best_development_loss=best_development_loss,
                 model_metadata=model_metadata,
             )
         else:
@@ -868,6 +942,7 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             run / "checkpoints" / "last",
             primary_metric=best_metric,
             epochs_without_improvement=epochs_without_improvement,
+            best_development_loss=best_development_loss,
         )
         epochs_completed = epoch + 1
         if (
@@ -890,13 +965,16 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     if config.training.evaluate_train_subset:
         diagnostic_checkpoint = run / "checkpoints" / "best"
         progress.message(
-            "Evaluating memorization on the selected training subset using "
-            f"{diagnostic_checkpoint}"
+            "Evaluating generalization gap on a deterministic training subset "
+            f"using {diagnostic_checkpoint}: "
+            f"{len(train_subset_evaluation_records)} samples across "
+            f"{len({record.scene_id for record in train_subset_evaluation_records})} "
+            "scenes"
         )
         diagnostic_dataset = OfflineSegmentationDataset(
             config.training.train_dataset,
             augment=False,
-            sample_ids=selected_sample_ids,
+            sample_ids=train_subset_evaluation_sample_ids,
         )
         diagnostic_model = build_segformer(
             config.model,
@@ -974,6 +1052,16 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             record.sample_id for record in qualitative_development_records
         ],
         "train_subset_evaluation": subset_evaluation_summary,
+        "train_subset_evaluation_samples": (
+            len(train_subset_evaluation_records)
+            if config.training.evaluate_train_subset
+            else None
+        ),
+        "train_subset_evaluation_sample_ids": train_subset_evaluation_sample_ids,
+        "save_min_development_loss_checkpoint": (
+            config.training.save_min_development_loss_checkpoint
+        ),
+        "best_development_loss": best_development_loss,
         "batch_size": config.training.batch_size,
         "batches_per_epoch": len(loader),
         "optimizer_steps_per_epoch": steps_per_epoch,
@@ -995,9 +1083,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
     if tensorboard is not None:
         tensorboard.flush()
         tensorboard.close()
-    plot_paths = save_training_plots(metrics_path, run / "plots")
     metrics_summary = summarize_training_metrics(metrics_path)
-    metrics_summary["plots"] = [str(path.relative_to(run)) for path in plot_paths]
+    metrics_summary["plots"] = []
     metrics_summary["tensorboard"] = (
         "tensorboard" if tensorboard is not None else None
     )
@@ -1007,21 +1094,25 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         best_development = development_metrics.get("best_known_class_miou")
         if best_development is not None:
             epoch = int(best_development["epoch"])
+            evaluation = development_evaluation_root(run, epoch)
             development_metrics["best_evaluation_report"] = str(
-                Path(f"evaluation-epoch-{epoch:03d}") / "summary.json"
+                (evaluation / "summary.json").relative_to(run)
             )
             development_metrics["best_evaluation_plots"] = str(
-                Path(f"evaluation-epoch-{epoch:03d}") / "plots"
+                (evaluation / "plots").relative_to(run)
             )
-    metrics_summary_path = run / "metrics_summary.json"
+    metrics_summary_path = records_root(run) / "metrics_summary.json"
     atomic_write_json(metrics_summary_path, metrics_summary)
     summary["metrics_summary"] = str(metrics_summary_path)
     summary["metric_plots"] = metrics_summary["plots"]
-    atomic_write_json(run / "summary.json", summary)
+    run_summary_path = records_root(run) / "run_summary.json"
+    atomic_write_json(run_summary_path, summary)
     progress.message("Building human-readable training report...")
     human_report = generate_training_report(run)
     summary["human_report"] = human_report["report"]
+    summary["metric_plots"] = human_report["plot_paths"]
+    metrics_summary["plots"] = human_report["plot_paths"]
     metrics_summary["human_report"] = human_report["report"]
     atomic_write_json(metrics_summary_path, metrics_summary)
-    atomic_write_json(run / "summary.json", summary)
+    atomic_write_json(run_summary_path, summary)
     return summary

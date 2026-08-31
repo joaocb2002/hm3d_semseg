@@ -13,7 +13,7 @@ from hm3d_semseg.types import NumpyArray
 
 
 def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
-    """Save robustly aggregated optimization and epoch-level development plots."""
+    """Save readable optimization plots while retaining every raw JSONL record."""
     try:
         import matplotlib
 
@@ -29,19 +29,30 @@ def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
         return created
 
     x = np.asarray([item["step"] for item in steps])
-    figure, axes = plot.subplots(2, 1, figsize=(10, 8), sharex=True)
+    figure, axes = plot.subplots(figsize=(12, 5))
     loss_median = np.asarray([item["loss_median"] for item in steps])
-    axes[0].plot(x, loss_median, label="median within step bin")
-    axes[0].fill_between(
+    axes.plot(x, loss_median, label="median within step bin")
+    axes.fill_between(
         x,
         [item["loss_p10"] for item in steps],
         [item["loss_p90"] for item in steps],
         alpha=0.22,
         label="10th-90th percentile",
     )
-    axes[0].set_ylabel("Cross-entropy")
-    axes[0].set_title("Training loss (aggregated; raw values remain in metrics.jsonl)")
-    axes[0].legend()
+    axes.set_xlabel("Optimizer step")
+    axes.set_ylabel("Training objective cross-entropy")
+    axes.set_title(
+        "Training loss (aggregated; every raw step remains in records/metrics.jsonl)"
+    )
+    axes.grid(alpha=0.2)
+    axes.legend()
+    figure.tight_layout()
+    training_loss = output / "training_loss.png"
+    figure.savefig(training_loss, dpi=160)
+    plot.close(figure)
+    created.append(training_loss)
+
+    figure, axes = plot.subplots(figsize=(12, 5))
     group_count = len(steps[0]["learning_rates"])
     standard_group_names = (
         "pretrained decay",
@@ -57,26 +68,26 @@ def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
             if group_count == 4
             else f"group {index}"
         )
-        axes[1].plot(
+        axes.plot(
             x,
             [item["learning_rates"][index] for item in steps],
             label=f"{group_name} (group {index})",
         )
-    axes[1].set_xlabel("Optimizer step")
-    axes[1].set_ylabel("Learning rate")
-    axes[1].legend()
+    axes.set_xlabel("Optimizer step")
+    axes.set_ylabel("Learning rate")
+    axes.set_title("Scheduled learning rates by optimizer parameter group")
+    axes.grid(alpha=0.2)
+    axes.legend()
     figure.tight_layout()
-    loss_and_lr = output / "loss_and_learning_rate.png"
-    figure.savefig(loss_and_lr, dpi=160)
+    learning_rates = output / "learning_rates.png"
+    figure.savefig(learning_rates, dpi=160)
     plot.close(figure)
-    created.append(loss_and_lr)
+    created.append(learning_rates)
 
-    has_gpu_memory = any(item.get("gpu_memory_median") is not None for item in steps)
-    rows = 4 if has_gpu_memory else 3
-    figure, axes = plot.subplots(rows, 1, figsize=(10, 2.7 * rows), sharex=True)
+    figure, axes = plot.subplots(figsize=(12, 5))
     finite_gradient = np.asarray([item["gradient_median"] for item in steps], dtype=np.float64)
-    axes[0].plot(x, finite_gradient, label="finite median")
-    axes[0].fill_between(
+    axes.plot(x, finite_gradient, label="finite median")
+    axes.fill_between(
         x,
         [item["gradient_p10"] for item in steps],
         [item["gradient_p90"] for item in steps],
@@ -84,59 +95,45 @@ def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
         label="finite 10th-90th percentile",
     )
     if np.isfinite(finite_gradient).any() and np.nanmax(finite_gradient) > 0:
-        axes[0].set_yscale("log")
+        axes.set_yscale("log")
     nonfinite = sum(int(item["gradient_nonfinite_count"]) for item in steps)
     skipped = sum(int(item["optimizer_steps_skipped"]) for item in steps)
-    axes[0].set_ylabel("Gradient norm")
-    axes[0].set_title(
+    axes.set_xlabel("Optimizer step")
+    axes.set_ylabel("Gradient norm")
+    axes.set_title(
         f"Finite gradient norms; {nonfinite} non-finite records, "
         f"{skipped} AMP-skipped updates"
     )
-    axes[0].legend()
-    _plot_band(axes[1], x, steps, "throughput", "Samples/s")
-    _plot_band(axes[2], x, steps, "step_seconds", "Seconds/step")
-    if has_gpu_memory:
-        axes[3].plot(x, [item["gpu_memory_median"] for item in steps])
-        axes[3].set_ylabel("Peak GPU GiB")
-    axes[-1].set_xlabel("Optimizer step")
+    axes.grid(alpha=0.2)
+    axes.legend()
     figure.tight_layout()
-    diagnostics = output / "optimization_diagnostics.png"
+    diagnostics = output / "gradient_and_amp_health.png"
     figure.savefig(diagnostics, dpi=160)
     plot.close(figure)
     created.append(diagnostics)
 
-    development = data["development"]
-    if development:
-        train_epochs = data["train_epochs"]
-        figure, axes = plot.subplots(2, 1, figsize=(10, 8), sharex=True)
-        axes[0].plot(
-            [item["epoch"] + 1 for item in train_epochs],
-            [item["loss"] for item in train_epochs],
-            marker="o",
-            label="training objective cross-entropy",
-        )
-        axes[0].plot(
-            [item["epoch"] + 1 for item in development],
-            [item["loss"] for item in development],
-            marker="o",
-            label="development cross-entropy",
-        )
-        axes[0].set_ylabel("Cross-entropy")
-        axes[0].legend()
-        axes[1].plot(
-            [item["epoch"] + 1 for item in development],
-            [item["known_class_miou"] for item in development],
-            marker="o",
-        )
-        _mark_epoch_extrema(axes, development)
-        axes[1].set_xlabel("Epoch")
-        axes[1].set_ylabel("Development known-class mIoU")
-        axes[1].set_ylim(0, 1)
-        figure.tight_layout()
-        development_metrics = output / "development_metrics.png"
-        figure.savefig(development_metrics, dpi=160)
-        plot.close(figure)
-        created.append(development_metrics)
+    has_gpu_memory = any(item.get("gpu_memory_median") is not None for item in steps)
+    rows = 3 if has_gpu_memory else 2
+    figure, axes = plot.subplots(rows, 1, figsize=(12, 3.3 * rows), sharex=True)
+    _plot_band(axes[0], x, steps, "throughput", "Samples/s")
+    axes[0].set_title("Throughput")
+    _plot_band(axes[1], x, steps, "step_seconds", "Seconds/step")
+    axes[1].set_title("Step duration")
+    if has_gpu_memory:
+        _plot_band(axes[2], x, steps, "gpu_memory", "GiB")
+        axes[2].set_title("Peak allocated CUDA memory")
+        axes[2].ticklabel_format(style="plain", axis="y", useOffset=False)
+    for axis in axes:
+        axis.grid(alpha=0.2)
+    axes[-1].set_xlabel("Optimizer step")
+    figure.suptitle(
+        "Runtime efficiency (aggregated; every raw step remains in records/metrics.jsonl)"
+    )
+    figure.tight_layout()
+    runtime = output / "throughput_and_memory.png"
+    figure.savefig(runtime, dpi=160)
+    plot.close(figure)
+    created.append(runtime)
     return created
 
 
@@ -209,6 +206,8 @@ def _aggregate_step_bucket(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "step_seconds_p10": float(np.percentile(durations, 10)),
         "step_seconds_p90": float(np.percentile(durations, 90)),
         "gpu_memory_median": float(np.median(memory)) if memory else None,
+        "gpu_memory_p10": float(np.percentile(memory, 10)) if memory else None,
+        "gpu_memory_p90": float(np.percentile(memory, 90)) if memory else None,
         "learning_rates": [float(value) for value in midpoint["learning_rates"]],
     }
 
@@ -224,14 +223,28 @@ def _plot_band(
     key: str,
     label: str,
 ) -> None:
-    axes.plot(x, [item[f"{key}_median"] for item in records])
+    median = [
+        np.nan if item.get(f"{key}_median") is None else item[f"{key}_median"]
+        for item in records
+    ]
+    p10 = [
+        np.nan if item.get(f"{key}_p10") is None else item[f"{key}_p10"]
+        for item in records
+    ]
+    p90 = [
+        np.nan if item.get(f"{key}_p90") is None else item[f"{key}_p90"]
+        for item in records
+    ]
+    axes.plot(x, median, label="median within step bin")
     axes.fill_between(
         x,
-        [item[f"{key}_p10"] for item in records],
-        [item[f"{key}_p90"] for item in records],
+        p10,
+        p90,
         alpha=0.22,
+        label="10th-90th percentile",
     )
     axes.set_ylabel(label)
+    axes.legend()
 
 
 def _mark_epoch_extrema(axes: Any, development: List[Dict[str, Any]]) -> None:

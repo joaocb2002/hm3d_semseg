@@ -39,9 +39,10 @@
 - `train` shows the optimizer-step plan, ETA, loss, learning rates, throughput,
   device, AMP, and parameters. Fresh run-name collisions allocate a numeric
   suffix; only explicit resume appends to an existing run. It automatically
-  writes `report/index.html` after completion.
+  writes the run-root `index.html` after completion.
 - `report-run` is read-only with respect to raw run artifacts and checkpoints;
-  it replaces only derived files below `RUN/report`.
+  it refreshes `RUN/index.html`, `RUN/report/`, `RUN/records/report_data.json`,
+  and `RUN/provenance/artifact_manifest.json`.
 - `compare-runs` validates comparable provenance and compares held-out metrics,
   not differently weighted training objectives.
 - A limited training experiment validates its deterministic selected files plus
