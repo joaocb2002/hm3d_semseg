@@ -53,7 +53,9 @@ from hm3d_semseg.utils.hashing import (
 
 EPOCH_COLUMNS = (
     "epoch",
+    "training_objective",
     "training_cross_entropy",
+    "training_lovasz",
     "development_cross_entropy",
     "known_class_miou",
     "objectnav_six_miou",
@@ -146,8 +148,18 @@ def generate_training_report(run: Path) -> Dict[str, Any]:
         evaluations,
         qualitative,
     )
-    weighting = run_summary.get("class_weighting") or resolved.get("training", {}).get(
+    training_config = resolved.get("training", {})
+    weighting = run_summary.get("class_weighting") or training_config.get(
         "class_weighting", "unknown"
+    )
+    training_loss = run_summary.get("training_loss") or training_config.get(
+        "loss",
+        {
+            "cross_entropy_weight": 1.0,
+            "lovasz_weight": 0.0,
+            "lovasz_include_unknown": False,
+            "lovasz_resolution": "native",
+        },
     )
     report_summary = {
         "schema_version": "2.0",
@@ -157,7 +169,7 @@ def generate_training_report(run: Path) -> Dict[str, Any]:
         "facts": facts,
         "warnings": warnings,
         "headline_metrics": _headline_metrics(best_evaluation),
-        "metric_scope_guide": _metric_scope_guide(str(weighting)),
+        "metric_scope_guide": _metric_scope_guide(str(weighting), training_loss),
         "epoch_metrics": epoch_rows,
         "checkpoint_comparison": checkpoint_rows,
         "train_subset_evaluation": run_summary.get("train_subset_evaluation"),
@@ -373,25 +385,34 @@ def _load_evaluations(run: Path) -> List[Tuple[int, Dict[str, Any]]]:
 def _epoch_rows(
     metrics_path: Path, evaluations: Sequence[Tuple[int, Dict[str, Any]]]
 ) -> List[Dict[str, Any]]:
-    train_losses: Dict[int, float] = {}
+    train_losses: Dict[int, Dict[str, float]] = {}
     with metrics_path.open("r", encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
             item = json.loads(line)
             if item.get("kind") == "train_epoch":
-                train_losses[int(item["epoch"])] = float(item["loss"])
+                train_losses[int(item["epoch"])] = {
+                    "objective": float(item.get("objective_loss", item["loss"])),
+                    "cross_entropy": float(
+                        item.get("cross_entropy_loss", item["loss"])
+                    ),
+                    "lovasz": float(item.get("lovasz_loss", 0.0)),
+                }
     evaluation_by_epoch = dict(evaluations)
     epochs = sorted(set(train_losses) | set(evaluation_by_epoch))
     rows = []
     for epoch in epochs:
         report = evaluation_by_epoch.get(epoch)
+        training = train_losses.get(epoch, {})
         row: Dict[str, Any] = {
             "epoch": epoch + 1,
-            "training_cross_entropy": train_losses.get(epoch),
+            "training_objective": training.get("objective"),
+            "training_cross_entropy": training.get("cross_entropy"),
+            "training_lovasz": training.get("lovasz"),
         }
         if report is None:
-            row.update({key: None for key in EPOCH_COLUMNS[2:]})
+            row.update({key: None for key in EPOCH_COLUMNS[4:]})
         else:
             row.update(
                 {
@@ -512,15 +533,25 @@ def _headline_metrics(
     ]
 
 
-def _metric_scope_guide(weighting: str) -> List[Dict[str, str]]:
+def _metric_scope_guide(
+    weighting: str, training_loss: Dict[str, Any]
+) -> List[Dict[str, str]]:
     """Explain every aggregation level without changing stored metric names."""
+    ce_weight = float(training_loss.get("cross_entropy_weight", 1.0))
+    lovasz_weight = float(training_loss.get("lovasz_weight", 0.0))
+    lovasz_scope = (
+        "classes 0-40"
+        if bool(training_loss.get("lovasz_include_unknown", False))
+        else "known classes 1-40"
+    )
     return [
         {
-            "reported_value": "Training objective cross-entropy",
+            "reported_value": "Training objective",
             "calculation_order": (
-                "Compute the configured cross-entropy in each augmented training "
-                f"minibatch (class weighting: {weighting}), then mean the minibatch "
-                "losses within the epoch."
+                f"Compute {ce_weight:g} x cross-entropy (class weighting: "
+                f"{weighting}) + {lovasz_weight:g} x Lovasz-Softmax over "
+                f"ground-truth-present {lovasz_scope}; then mean minibatch "
+                "objectives within the epoch."
             ),
             "equal_weight_unit": "Training minibatch; this is the optimization objective.",
         },
@@ -599,6 +630,15 @@ def _facts_and_warnings(
         "class_weighting", "unknown"
     )
     facts.append(f"Training loss class weighting: {weighting}.")
+    training_loss = summary.get("training_loss") or resolved.get("training", {}).get(
+        "loss",
+        {"cross_entropy_weight": 1.0, "lovasz_weight": 0.0},
+    )
+    facts.append(
+        "Training objective: "
+        f"{float(training_loss.get('cross_entropy_weight', 1.0)):g} x CE + "
+        f"{float(training_loss.get('lovasz_weight', 0.0)):g} x Lovasz-Softmax."
+    )
     subset = summary.get("train_subset_evaluation")
     if subset is not None:
         facts.append(
@@ -722,10 +762,10 @@ def _markdown_summary(report: Dict[str, Any], metrics: Dict[str, Any]) -> str:
     if report["checkpoint_comparison"]:
         lines.append(_markdown_table(report["checkpoint_comparison"]))
     else:
-        train = metrics["training"]["epoch_cross_entropy"]
+        train = metrics["training"]["epoch_objective"]
         lines.append(
             "No development checkpoint comparison is available. Training epoch "
-            f"cross-entropy ended at {_format(train.get('final'))}."
+            f"objective ended at {_format(train.get('final'))}."
         )
     lines.extend(
         [
@@ -810,7 +850,7 @@ code{{background:#edf1f5;padding:2px 5px;border-radius:4px}} .muted{{color:#6170
 <section class="card"><h2>Selected training-subset diagnostic</h2><p>This measures memorization, not held-out generalization.</p><div class="table-wrap">{subset_table}</div></section>
 <section><h2>Curves and diagnostics</h2>{plots}</section>
 {qualitative}
-<section class="card"><h2>Epoch metrics</h2><p>Only <b>training cross-entropy</b> is a training-set value. Every other populated metric column below is computed on development.</p><div class="table-wrap">{epoch_table}</div></section>
+<section class="card"><h2>Epoch metrics</h2><p>The columns prefixed <b>training</b> are minibatch-averaged training values. Every other populated metric column below is computed on development.</p><div class="table-wrap">{epoch_table}</div></section>
 <section class="card"><h2>Best-epoch per-class metrics</h2><div class="table-wrap">{per_class_table}</div></section>
 <section class="card"><h2>Largest best-epoch confusions</h2><p>Rows are true classes; columns are predicted classes.</p><div class="table-wrap">{confusion_table}</div></section>
 <section class="card"><h2>Machine-readable sources</h2><p>{source_links}</p></section>

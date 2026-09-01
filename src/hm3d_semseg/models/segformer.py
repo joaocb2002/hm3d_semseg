@@ -20,6 +20,15 @@ class SegmentationOutput:
     entropy: Any
 
 
+@dataclass
+class SegmentationLosses:
+    """Differentiable objective and its unscaled, human-readable components."""
+
+    objective: Any
+    cross_entropy: Any
+    lovasz: Any
+
+
 def _torch_imports() -> Tuple[Any, Any]:
     try:
         import torch
@@ -128,6 +137,119 @@ def segmentation_loss(
     return functional.cross_entropy(
         logits, targets, weight=class_weights, ignore_index=ignore_index
     )
+
+
+def lovasz_softmax_loss(
+    raw_logits: Any,
+    targets: Any,
+    *,
+    align_corners: bool = False,
+    ignore_index: int = 255,
+    include_unknown: bool = False,
+    resolution: str = "native",
+) -> Any:
+    """Lovasz-Softmax over ground-truth-present classes in one minibatch.
+
+    ``native`` evaluates the surrogate at the decoder-logit resolution and
+    downsamples the discrete target with nearest interpolation. ``target``
+    upsamples logits to the stored target size. Target 255 is always removed;
+    class 0 remains a valid negative even when it is excluded from the macro
+    set of positive classes.
+    """
+    torch, functional = _torch_imports()
+    if resolution == "native":
+        logits = raw_logits
+        if tuple(targets.shape[-2:]) != tuple(raw_logits.shape[-2:]):
+            labels = functional.interpolate(
+                targets.unsqueeze(1).to(dtype=torch.float32),
+                size=raw_logits.shape[-2:],
+                mode="nearest",
+            ).squeeze(1).to(dtype=targets.dtype)
+        else:
+            labels = targets
+    elif resolution == "target":
+        logits = upsample_logits(raw_logits, targets.shape[-2:], align_corners)
+        labels = targets
+    else:
+        raise ValueError("Lovasz resolution must be 'native' or 'target'")
+
+    probabilities = torch.softmax(logits.float(), dim=1)
+    probabilities = probabilities.permute(0, 2, 3, 1).reshape(-1, logits.shape[1])
+    labels = labels.reshape(-1)
+    valid = labels != ignore_index
+    probabilities = probabilities[valid]
+    labels = labels[valid]
+    if labels.numel() == 0:
+        return probabilities.sum() * 0.0
+
+    losses = []
+    class_ids = [
+        int(value)
+        for value in torch.unique(labels).tolist()
+        if 0 <= int(value) < int(logits.shape[1])
+        and (include_unknown or int(value) != 0)
+    ]
+    for class_id in class_ids:
+        foreground = (labels == class_id).to(dtype=probabilities.dtype)
+        errors = (foreground - probabilities[:, class_id]).abs()
+        errors_sorted, permutation = torch.sort(errors, descending=True)
+        foreground_sorted = foreground[permutation]
+        gradient = _lovasz_gradient(foreground_sorted)
+        losses.append(torch.dot(errors_sorted, gradient))
+    if not losses:
+        return probabilities.sum() * 0.0
+    return torch.stack(losses).mean()
+
+
+def _lovasz_gradient(sorted_foreground: Any) -> Any:
+    """Discrete derivative of the Jaccard loss for sorted pixel errors."""
+    foreground_count = sorted_foreground.sum()
+    intersection = foreground_count - sorted_foreground.cumsum(0)
+    union = foreground_count + (1.0 - sorted_foreground).cumsum(0)
+    gradient = 1.0 - intersection / union
+    if gradient.numel() > 1:
+        torch, _ = _torch_imports()
+        gradient = torch.cat((gradient[:1], gradient[1:] - gradient[:-1]))
+    return gradient
+
+
+def segmentation_objective(
+    raw_logits: Any,
+    targets: Any,
+    *,
+    cross_entropy_weight: float = 1.0,
+    lovasz_weight: float = 0.0,
+    lovasz_include_unknown: bool = False,
+    lovasz_resolution: str = "native",
+    align_corners: bool = False,
+    ignore_index: int = 255,
+    class_weights: Optional[Any] = None,
+) -> SegmentationLosses:
+    """Return the configured loss and its raw CE/Lovasz components."""
+    cross_entropy = segmentation_loss(
+        raw_logits,
+        targets,
+        align_corners=align_corners,
+        ignore_index=ignore_index,
+        class_weights=class_weights,
+    )
+    if lovasz_weight > 0.0:
+        lovasz = lovasz_softmax_loss(
+            raw_logits,
+            targets,
+            align_corners=align_corners,
+            ignore_index=ignore_index,
+            include_unknown=lovasz_include_unknown,
+            resolution=lovasz_resolution,
+        )
+    else:
+        lovasz = cross_entropy.detach() * 0.0
+    objective = (
+        cross_entropy
+        if cross_entropy_weight == 1.0 and lovasz_weight == 0.0
+        else cross_entropy_weight * cross_entropy + lovasz_weight * lovasz
+    )
+    return SegmentationLosses(objective, cross_entropy, lovasz)
 
 
 def predict(

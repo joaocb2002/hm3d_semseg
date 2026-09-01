@@ -31,7 +31,7 @@ def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
     x = np.asarray([item["step"] for item in steps])
     figure, axes = plot.subplots(figsize=(12, 5))
     loss_median = np.asarray([item["loss_median"] for item in steps])
-    axes.plot(x, loss_median, label="median within step bin")
+    axes.plot(x, loss_median, label="objective median within step bin")
     axes.fill_between(
         x,
         [item["loss_p10"] for item in steps],
@@ -40,7 +40,20 @@ def save_training_plots(metrics_path: Path, output: Path) -> List[Path]:
         label="10th-90th percentile",
     )
     axes.set_xlabel("Optimizer step")
-    axes.set_ylabel("Training objective cross-entropy")
+    if any(item["has_loss_components"] for item in steps):
+        axes.plot(
+            x,
+            [item["cross_entropy_median"] for item in steps],
+            linestyle="--",
+            label="unscaled cross-entropy median",
+        )
+        axes.plot(
+            x,
+            [item["lovasz_median"] for item in steps],
+            linestyle=":",
+            label="unscaled Lovasz median",
+        )
+    axes.set_ylabel("Training loss")
     axes.set_title(
         "Training loss (aggregated; every raw step remains in records/metrics.jsonl)"
     )
@@ -176,7 +189,13 @@ def load_plot_data(metrics_path: Path, *, maximum_step_bins: int = 1000) -> Dict
 
 
 def _aggregate_step_bucket(records: List[Dict[str, Any]]) -> Dict[str, Any]:
-    loss = np.asarray([float(item["loss"]) for item in records])
+    loss = np.asarray(
+        [float(item.get("objective_loss", item["loss"])) for item in records]
+    )
+    cross_entropy = np.asarray(
+        [float(item.get("cross_entropy_loss", item["loss"])) for item in records]
+    )
+    lovasz = np.asarray([float(item.get("lovasz_loss", 0.0)) for item in records])
     gradients = np.asarray([float(item["gradient_norm"]) for item in records])
     finite_gradients = gradients[np.isfinite(gradients)]
     throughput = np.asarray([float(item["samples_per_second"]) for item in records])
@@ -192,6 +211,11 @@ def _aggregate_step_bucket(records: List[Dict[str, Any]]) -> Dict[str, Any]:
         "loss_median": float(np.median(loss)),
         "loss_p10": float(np.percentile(loss, 10)),
         "loss_p90": float(np.percentile(loss, 90)),
+        "cross_entropy_median": float(np.median(cross_entropy)),
+        "lovasz_median": float(np.median(lovasz)),
+        "has_loss_components": any(
+            float(item.get("lovasz_weight", 0.0)) > 0.0 for item in records
+        ),
         "gradient_median": _finite_percentile(finite_gradients, 50),
         "gradient_p10": _finite_percentile(finite_gradients, 10),
         "gradient_p90": _finite_percentile(finite_gradients, 90),

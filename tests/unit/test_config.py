@@ -106,6 +106,8 @@ def test_generalization_probe_uses_full_training_and_bounded_diagnostics() -> No
     assert config.training.learning_rate_schedule_steps == 48_000
     assert config.training.warmup_steps == 500
     assert config.training.early_stopping_patience == 5
+    assert config.training.loss.cross_entropy_weight == pytest.approx(1.0)
+    assert config.training.loss.lovasz_weight == pytest.approx(0.0)
 
 
 def test_intermediate_lr_probe_changes_only_encoder_lr_and_run_name() -> None:
@@ -133,6 +135,64 @@ def test_intermediate_lr_probe_changes_only_encoder_lr_and_run_name() -> None:
     ]
     stable["training"]["run_name"] = intermediate["training"]["run_name"]
     assert intermediate == stable
+
+
+def test_ce_lovasz_probe_changes_only_loss_and_run_name() -> None:
+    generated = Path("/tmp/generated")
+    overrides = {"paths": {"generated_data_root": str(generated)}}
+    stable = load_config(
+        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        cli_overrides=overrides,
+    ).to_dict()
+    ce_lovasz = load_config(
+        command_config=_experiment(
+            "segformer_b2_generalization_probe_ce_lovasz.yaml"
+        ),
+        cli_overrides=overrides,
+    ).to_dict()
+
+    assert ce_lovasz["training"]["loss"] == {
+        "cross_entropy_weight": pytest.approx(0.8),
+        "lovasz_weight": pytest.approx(0.2),
+        "lovasz_include_unknown": False,
+        "lovasz_resolution": "native",
+    }
+    assert ce_lovasz["training"]["encoder_learning_rate"] == pytest.approx(6e-6)
+
+    stable["training"]["loss"] = ce_lovasz["training"]["loss"]
+    stable["training"]["run_name"] = ce_lovasz["training"]["run_name"]
+    assert ce_lovasz == stable
+
+
+def test_ce_lovasz_smoke_is_bounded_and_exercises_mixed_loss() -> None:
+    config = load_config(
+        command_config=_experiment(
+            "segformer_b2_generalization_probe_ce_lovasz_smoke.yaml"
+        ),
+        cli_overrides={"paths": {"generated_data_root": "/tmp/generated"}},
+    )
+
+    assert config.training.max_train_samples == 256
+    assert config.training.max_development_samples == 64
+    assert config.training.epochs == 2
+    assert config.training.max_optimizer_steps == 256
+    assert config.training.loss.cross_entropy_weight == pytest.approx(0.8)
+    assert config.training.loss.lovasz_weight == pytest.approx(0.2)
+
+
+def test_all_preexisting_recipes_remain_pure_cross_entropy() -> None:
+    for path in sorted(_experiment(".").glob("*.yaml")):
+        if path.name in {
+            "segformer_b2_generalization_probe_ce_lovasz.yaml",
+            "segformer_b2_generalization_probe_ce_lovasz_smoke.yaml",
+        }:
+            continue
+        config = load_config(
+            command_config=path,
+            cli_overrides={"paths": {"generated_data_root": "/tmp/generated"}},
+        )
+        assert config.training.loss.cross_entropy_weight == pytest.approx(1.0)
+        assert config.training.loss.lovasz_weight == pytest.approx(0.0)
 
 
 def test_tiny_overfit_explicitly_disables_development_dataset() -> None:
@@ -224,6 +284,34 @@ def test_weighting_and_warmup_are_validated() -> None:
         load_config(cli_overrides={"training": {"qualitative_every_epochs": 0}})
     with pytest.raises(ConfigurationError, match=r"training\.run_name"):
         load_config(cli_overrides={"training": {"run_name": "../outside"}})
+    with pytest.raises(ConfigurationError, match=r"cross_entropy_weight"):
+        load_config(
+            cli_overrides={
+                "training": {
+                    "loss": {
+                        "cross_entropy_weight": 0.0,
+                        "lovasz_weight": 1.0,
+                    }
+                }
+            }
+        )
+    with pytest.raises(ConfigurationError, match=r"weights must sum to 1"):
+        load_config(
+            cli_overrides={
+                "training": {
+                    "loss": {
+                        "cross_entropy_weight": 1.0,
+                        "lovasz_weight": 0.2,
+                    }
+                }
+            }
+        )
+    with pytest.raises(ConfigurationError, match=r"lovasz_resolution"):
+        load_config(
+            cli_overrides={
+                "training": {"loss": {"lovasz_resolution": "quarter"}}
+            }
+        )
     with pytest.raises(ConfigurationError, match=r"evaluation\.bootstrap_samples"):
         load_config(cli_overrides={"evaluation": {"bootstrap_samples": 0}})
     with pytest.raises(ConfigurationError, match=r"evaluation\.qualitative_samples"):

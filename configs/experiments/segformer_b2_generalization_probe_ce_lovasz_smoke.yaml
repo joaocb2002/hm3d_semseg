@@ -1,4 +1,5 @@
-# Local integration check for the ADE20K-style data and optimization path.
+# Local integration check for the mixed CE + Lovasz objective and reporting.
+# Its subset metrics are not recipe-selection evidence.
 model:
   model_id: nvidia/segformer-b2-finetuned-ade-512-512
   revision: null  # Host-pinned revision comes from configs/local.yaml.
@@ -9,29 +10,36 @@ training:
   datasets:
     train: train-v1
     development: development-v1
+  loss:
+    cross_entropy_weight: 0.8
+    lovasz_weight: 0.2
+    lovasz_include_unknown: false
+    lovasz_resolution: native
   seed: 2027
   deterministic_algorithms: false
   device: auto
-  max_train_samples: 1024
-  max_development_samples: 256
+  max_train_samples: 256
+  max_development_samples: 64
   sample_selection: scene_diverse
   development_sample_selection: scene_diverse
   evaluate_train_subset: false
+  train_subset_evaluation_samples: null
+  save_min_development_loss_checkpoint: true
   qualitative_samples: 10
   qualitative_every_epochs: 1
-  run_name: segformer_b2_ade20k_recipe_smoke
-  epochs: 10
-  max_optimizer_steps: 1000
+  run_name: segformer_b2_generalization_probe_ce_lovasz_smoke
+  epochs: 2
+  max_optimizer_steps: 256
   batch_size: 2
   workers: 4
-  encoder_learning_rate: 0.00006
+  encoder_learning_rate: 0.000006
   head_learning_rate: 0.0006
   weight_decay: 0.01
   learning_rate_schedule: polynomial
-  learning_rate_schedule_steps: 1000
+  learning_rate_schedule_steps: 256
   polynomial_power: 1.0
   warmup_fraction: 0.0
-  warmup_steps: 100
+  warmup_steps: 20
   warmup_start_factor: 0.000001
   gradient_accumulation_steps: 1
   gradient_clip_norm: 1.0

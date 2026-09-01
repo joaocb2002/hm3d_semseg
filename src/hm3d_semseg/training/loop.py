@@ -29,7 +29,7 @@ from hm3d_semseg.evaluation.run import evaluate_model
 from hm3d_semseg.models.segformer import (
     build_segformer,
     parameter_groups,
-    segmentation_loss,
+    segmentation_objective,
 )
 from hm3d_semseg.training.artifacts import (
     development_evaluation_root,
@@ -630,6 +630,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         warmup_steps=warmup_steps,
         learning_rate_schedule=config.training.learning_rate_schedule,
         learning_rate_schedule_steps=schedule_steps,
+        cross_entropy_weight=config.training.loss.cross_entropy_weight,
+        lovasz_weight=config.training.loss.lovasz_weight,
     )
     camera_path = config.training.train_dataset / "camera_profile.yaml"
     model_metadata = {
@@ -638,6 +640,12 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         "num_labels": config.model.num_labels,
         "align_corners": config.model.align_corners,
         "reduce_labels": False,
+        "training_loss": {
+            "cross_entropy_weight": config.training.loss.cross_entropy_weight,
+            "lovasz_weight": config.training.loss.lovasz_weight,
+            "lovasz_include_unknown": config.training.loss.lovasz_include_unknown,
+            "lovasz_resolution": config.training.loss.lovasz_resolution,
+        },
     }
     epochs_completed = start_epoch
     for epoch in range(start_epoch, config.training.epochs):
@@ -647,6 +655,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         model.train()
         optimizer.zero_grad(set_to_none=True)
         running_loss = 0.0
+        running_cross_entropy = 0.0
+        running_lovasz = 0.0
         batches = 0
         samples_since_step = 0
         if using_cuda:
@@ -661,13 +671,22 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
             samples_since_step += int(pixels.shape[0])
             with torch.amp.autocast("cuda", enabled=amp_enabled):
                 raw_logits = model(pixel_values=pixels).logits
-                loss = segmentation_loss(
+                losses = segmentation_objective(
                     raw_logits,
                     labels,
+                    cross_entropy_weight=(
+                        config.training.loss.cross_entropy_weight
+                    ),
+                    lovasz_weight=config.training.loss.lovasz_weight,
+                    lovasz_include_unknown=(
+                        config.training.loss.lovasz_include_unknown
+                    ),
+                    lovasz_resolution=config.training.loss.lovasz_resolution,
                     align_corners=config.model.align_corners,
                     ignore_index=config.taxonomy.ignore_index,
                     class_weights=class_weights,
                 )
+                loss = losses.objective
                 scaled_loss = loss / config.training.gradient_accumulation_steps
             if not torch.isfinite(loss):
                 raise FloatingPointError(
@@ -675,6 +694,8 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                 )
             scaler.scale(scaled_loss).backward()
             running_loss += float(loss.detach().cpu())
+            running_cross_entropy += float(losses.cross_entropy.detach().cpu())
+            running_lovasz += float(losses.lovasz.detach().cpu())
             batches += 1
             should_step = (
                 batch_index + 1
@@ -708,6 +729,15 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                         "epoch": epoch,
                         "step": global_step,
                         "loss": float(loss.detach().cpu()),
+                        "objective_loss": float(loss.detach().cpu()),
+                        "cross_entropy_loss": float(
+                            losses.cross_entropy.detach().cpu()
+                        ),
+                        "lovasz_loss": float(losses.lovasz.detach().cpu()),
+                        "cross_entropy_weight": (
+                            config.training.loss.cross_entropy_weight
+                        ),
+                        "lovasz_weight": config.training.loss.lovasz_weight,
                         "gradient_norm": float(gradient_norm.detach().cpu()),
                         "gradient_norm_finite": bool(
                             torch.isfinite(gradient_norm).detach().cpu()
@@ -730,6 +760,22 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                     tensorboard.add_scalar(
                         "train/loss", float(loss.detach().cpu()), global_step
                     )
+                    tensorboard.add_scalar(
+                        "train/objective_loss",
+                        float(loss.detach().cpu()),
+                        global_step,
+                    )
+                    tensorboard.add_scalar(
+                        "train/cross_entropy_loss",
+                        float(losses.cross_entropy.detach().cpu()),
+                        global_step,
+                    )
+                    if config.training.loss.lovasz_weight > 0.0:
+                        tensorboard.add_scalar(
+                            "train/lovasz_loss",
+                            float(losses.lovasz.detach().cpu()),
+                            global_step,
+                        )
                     tensorboard.add_scalar(
                         "train/gradient_norm",
                         float(gradient_norm.detach().cpu()),
@@ -759,12 +805,35 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
                     torch.cuda.reset_peak_memory_stats(device)
                 optimizer_step_started = time.perf_counter()
         epoch_loss = running_loss / max(1, batches)
+        epoch_cross_entropy = running_cross_entropy / max(1, batches)
+        epoch_lovasz = running_lovasz / max(1, batches)
         _append_jsonl(
             metrics_path,
-            {"kind": "train_epoch", "epoch": epoch, "loss": epoch_loss},
+            {
+                "kind": "train_epoch",
+                "epoch": epoch,
+                "loss": epoch_loss,
+                "objective_loss": epoch_loss,
+                "cross_entropy_loss": epoch_cross_entropy,
+                "lovasz_loss": epoch_lovasz,
+                "cross_entropy_weight": (
+                    config.training.loss.cross_entropy_weight
+                ),
+                "lovasz_weight": config.training.loss.lovasz_weight,
+            },
         )
         if tensorboard is not None:
             tensorboard.add_scalar("train/epoch_loss", epoch_loss, epoch)
+            tensorboard.add_scalar(
+                "train/epoch_objective_loss", epoch_loss, epoch
+            )
+            tensorboard.add_scalar(
+                "train/epoch_cross_entropy_loss", epoch_cross_entropy, epoch
+            )
+            if config.training.loss.lovasz_weight > 0.0:
+                tensorboard.add_scalar(
+                    "train/epoch_lovasz_loss", epoch_lovasz, epoch
+                )
         capture_qualitative = (
             epoch == start_epoch
             or (epoch + 1) % config.training.qualitative_every_epochs == 0
@@ -1021,6 +1090,12 @@ def train(config: ProjectConfig, *, show_progress: bool = True) -> Dict[str, Any
         "amp": amp_enabled,
         "determinism": determinism,
         "class_weighting": config.training.class_weighting,
+        "training_loss": {
+            "cross_entropy_weight": config.training.loss.cross_entropy_weight,
+            "lovasz_weight": config.training.loss.lovasz_weight,
+            "lovasz_include_unknown": config.training.loss.lovasz_include_unknown,
+            "lovasz_resolution": config.training.loss.lovasz_resolution,
+        },
         "train_samples": len(dataset),
         "train_scenes": len({record.scene_id for record in dataset.records}),
         "training_sample_selection": config.training.sample_selection,

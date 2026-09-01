@@ -63,18 +63,33 @@ def _save_overview(
     training_epochs = _training_epoch_losses(metrics_path)
     if training_epochs:
         axes[0].plot(
-            [epoch + 1 for epoch, _ in training_epochs],
-            [value for _, value in training_epochs],
+            [item["epoch"] + 1 for item in training_epochs],
+            [item["objective"] for item in training_epochs],
             marker="o",
-            label="training objective CE (mean over minibatches)",
+            label="training objective (mean over minibatches)",
         )
+        if any(item["has_components"] for item in training_epochs):
+            axes[0].plot(
+                [item["epoch"] + 1 for item in training_epochs],
+                [item["cross_entropy"] for item in training_epochs],
+                marker=".",
+                linestyle="--",
+                label="training CE component (unscaled)",
+            )
+            axes[0].plot(
+                [item["epoch"] + 1 for item in training_epochs],
+                [item["lovasz"] for item in training_epochs],
+                marker=".",
+                linestyle=":",
+                label="training Lovasz component (unscaled)",
+            )
     axes[0].plot(
         epochs,
         [_number(report.get("mean_cross_entropy_loss")) for _, report in evaluations],
         marker="o",
         label="development CE / NLL (pooled valid pixels)",
     )
-    axes[0].set_ylabel("Cross-entropy")
+    axes[0].set_ylabel("Loss")
     axes[0].set_title(
         "Optimization objective versus unweighted held-out probability loss"
     )
@@ -546,7 +561,7 @@ def _save_classes_and_scenes(
     return created
 
 
-def _training_epoch_losses(metrics_path: Path) -> List[Tuple[int, float]]:
+def _training_epoch_losses(metrics_path: Path) -> List[Dict[str, Any]]:
     import json
 
     result = []
@@ -556,7 +571,21 @@ def _training_epoch_losses(metrics_path: Path) -> List[Tuple[int, float]]:
                 continue
             item = json.loads(line)
             if item.get("kind") == "train_epoch":
-                result.append((int(item["epoch"]), float(item["loss"])))
+                result.append(
+                    {
+                        "epoch": int(item["epoch"]),
+                        "objective": float(
+                            item.get("objective_loss", item["loss"])
+                        ),
+                        "cross_entropy": float(
+                            item.get("cross_entropy_loss", item["loss"])
+                        ),
+                        "lovasz": float(item.get("lovasz_loss", 0.0)),
+                        "has_components": float(
+                            item.get("lovasz_weight", 0.0)
+                        ) > 0.0,
+                    }
+                )
     return result
 
 

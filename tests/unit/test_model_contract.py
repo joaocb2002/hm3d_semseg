@@ -4,7 +4,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from hm3d_semseg.models.segformer import parameter_groups, predict, segmentation_loss
+from hm3d_semseg.models.segformer import (
+    lovasz_softmax_loss,
+    parameter_groups,
+    predict,
+    segmentation_loss,
+    segmentation_objective,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -34,6 +40,60 @@ def test_cross_entropy_gets_raw_logits_and_ignores_255() -> None:
     targets = torch.tensor([[[0, 1], [255, 40]]])
     loss = segmentation_loss(logits, targets)
     assert loss.item() == pytest.approx(torch.log(torch.tensor(41.0)).item())
+    loss.backward()
+    assert torch.isfinite(logits.grad).all()
+
+
+def test_zero_lovasz_weight_preserves_original_cross_entropy_exactly() -> None:
+    logits = torch.randn(2, 41, 2, 3, requires_grad=True)
+    targets = torch.tensor(
+        [[[0, 1, 2], [3, 255, 40]], [[1, 1, 0], [2, 3, 4]]]
+    )
+
+    expected = segmentation_loss(logits, targets)
+    losses = segmentation_objective(logits, targets)
+
+    assert torch.equal(losses.objective, expected)
+    assert torch.equal(losses.cross_entropy, expected)
+    assert losses.lovasz.item() == 0.0
+
+
+def test_lovasz_softmax_rewards_correct_known_class_rankings() -> None:
+    targets = torch.tensor([[[0, 1], [2, 255]]])
+    correct = torch.full((1, 3, 2, 2), -8.0, requires_grad=True)
+    wrong = torch.full((1, 3, 2, 2), -8.0)
+    with torch.no_grad():
+        correct[0, 0, 0, 0] = 8.0
+        correct[0, 1, 0, 1] = 8.0
+        correct[0, 2, 1, 0] = 8.0
+        wrong[0, 0, 0, 0] = 8.0
+        wrong[0, 2, 0, 1] = 8.0
+        wrong[0, 1, 1, 0] = 8.0
+
+    correct_loss = lovasz_softmax_loss(correct, targets)
+    wrong_loss = lovasz_softmax_loss(wrong, targets)
+
+    assert correct_loss.item() < 1e-5
+    assert wrong_loss.item() > 0.9
+    correct_loss.backward()
+    assert torch.isfinite(correct.grad).all()
+
+
+def test_lovasz_native_resolution_keeps_unknown_as_a_negative() -> None:
+    targets = torch.tensor(
+        [[[0, 0, 1, 1], [0, 0, 1, 1], [2, 2, 255, 255], [2, 2, 255, 255]]]
+    )
+    logits = torch.zeros(1, 3, 2, 2, requires_grad=True)
+
+    loss = lovasz_softmax_loss(
+        logits,
+        targets,
+        include_unknown=False,
+        resolution="native",
+    )
+
+    assert torch.isfinite(loss)
+    assert loss.item() > 0.0
     loss.backward()
     assert torch.isfinite(logits.grad).all()
 

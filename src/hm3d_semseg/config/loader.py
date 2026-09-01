@@ -358,6 +358,28 @@ def _validate(config: ProjectConfig) -> None:
         raise ConfigurationError(
             "Set either training.class_weights or training.class_weighting, not both"
         )
+    loss = config.training.loss
+    if not math.isfinite(loss.cross_entropy_weight) or loss.cross_entropy_weight <= 0:
+        raise ConfigurationError(
+            "training.loss.cross_entropy_weight must be finite and positive"
+        )
+    if not math.isfinite(loss.lovasz_weight) or loss.lovasz_weight < 0:
+        raise ConfigurationError(
+            "training.loss.lovasz_weight must be finite and nonnegative"
+        )
+    if not math.isclose(
+        loss.cross_entropy_weight + loss.lovasz_weight,
+        1.0,
+        rel_tol=0.0,
+        abs_tol=1e-8,
+    ):
+        raise ConfigurationError(
+            "training loss weights must sum to 1"
+        )
+    if loss.lovasz_resolution not in {"native", "target"}:
+        raise ConfigurationError(
+            "training.loss.lovasz_resolution must be 'native' or 'target'"
+        )
     if (
         config.training.early_stopping_patience is not None
         and config.training.early_stopping_patience <= 0

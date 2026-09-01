@@ -111,8 +111,19 @@ class TrainingDatasetsConfig:
 
 
 @dataclass
+class TrainingLossConfig:
+    """Coefficients and scope of the differentiable training objective."""
+
+    cross_entropy_weight: float = 1.0
+    lovasz_weight: float = 0.0
+    lovasz_include_unknown: bool = False
+    lovasz_resolution: str = "native"
+
+
+@dataclass
 class TrainingConfig:
     datasets: TrainingDatasetsConfig = field(default_factory=TrainingDatasetsConfig)
+    loss: TrainingLossConfig = field(default_factory=TrainingLossConfig)
     seed: int = 2027
     deterministic_algorithms: bool = False
     device: str = "auto"

@@ -76,6 +76,7 @@ def test_training_metric_summary_preserves_important_extrema(tmp_path: Path) -> 
     summary = summarize_training_metrics(metrics)
 
     assert summary["training"]["optimizer_steps_recorded"] == 2
+    assert summary["training"]["step_objective"]["initial"] == 2.0
     assert summary["training"]["step_cross_entropy"]["initial"] == 2.0
     assert summary["training"]["step_cross_entropy"]["minimum"] == {
         "step": 2,
@@ -91,6 +92,57 @@ def test_training_metric_summary_preserves_important_extrema(tmp_path: Path) -> 
         "epoch": 1,
         "value": 0.5,
     }
+
+
+def test_training_metric_summary_separates_mixed_loss_components(
+    tmp_path: Path,
+) -> None:
+    metrics = tmp_path / "metrics.jsonl"
+    records = [
+        {
+            "kind": "train_step",
+            "epoch": 0,
+            "step": 1,
+            "loss": 0.9,
+            "objective_loss": 0.9,
+            "cross_entropy_loss": 1.0,
+            "lovasz_loss": 0.5,
+            "cross_entropy_weight": 0.8,
+            "lovasz_weight": 0.2,
+            "gradient_norm": 1.0,
+            "learning_rates": [1e-4],
+            "samples": 2,
+            "step_seconds": 1.0,
+            "samples_per_second": 2.0,
+        },
+        {
+            "kind": "train_epoch",
+            "epoch": 0,
+            "loss": 0.9,
+            "objective_loss": 0.9,
+            "cross_entropy_loss": 1.0,
+            "lovasz_loss": 0.5,
+            "cross_entropy_weight": 0.8,
+            "lovasz_weight": 0.2,
+        },
+    ]
+    metrics.write_text(
+        "".join(json.dumps(record) + "\n" for record in records),
+        encoding="utf-8",
+    )
+
+    summary = summarize_training_metrics(metrics)
+
+    assert summary["training"]["epoch_objective"]["final"] == 0.9
+    assert summary["training"]["epoch_cross_entropy"]["final"] == 1.0
+    assert summary["training"]["epoch_lovasz"]["final"] == 0.5
+
+    from hm3d_semseg.training.plots import load_plot_data
+
+    plot_data = load_plot_data(metrics)
+    assert plot_data["step_bins"][0]["has_loss_components"] is True
+    assert plot_data["step_bins"][0]["cross_entropy_median"] == 1.0
+    assert plot_data["step_bins"][0]["lovasz_median"] == 0.5
 
 
 def test_training_plots_separate_readable_optimization_views(
@@ -127,6 +179,12 @@ def test_static_training_report_keeps_raw_metrics_authoritative(tmp_path: Path) 
     assert Path(result["report"]) == tmp_path / "index.html"
     assert (tmp_path / "report" / "summary.md").is_file()
     assert (tmp_path / "report" / "tables" / "epoch_metrics.csv").is_file()
+    epoch_header = (
+        tmp_path / "report" / "tables" / "epoch_metrics.csv"
+    ).read_text(encoding="utf-8").splitlines()[0]
+    assert epoch_header.startswith(
+        "epoch,training_objective,training_cross_entropy,training_lovasz,"
+    )
     assert (tmp_path / "records" / "report_data.json").is_file()
     assert (tmp_path / "provenance" / "artifact_manifest.json").is_file()
     assert "No development evaluation exists" in " ".join(result["warnings"])

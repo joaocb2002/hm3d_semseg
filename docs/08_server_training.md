@@ -203,10 +203,39 @@ smoke metric cannot select between learning rates. Configuration unit tests
 enforce that LR and run name are the only differences between the two full
 probes.
 
+### 8.5.2 Run the controlled CE + Lovasz follow-up
+
+After preserving the two CE probes, run the checked IoU-aligned comparison:
+
+```bash
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_generalization_probe_ce_lovasz.yaml \
+  --local-config configs/local.yaml
+```
+
+On `knuth`, run it from `/workspace/repository/hm3d-semseg`. It restores the
+stable probe's `6e-6` encoder LR and keeps its data, seed, augmentations, head
+LR, schedule, stopping, checkpoints, and evaluation unchanged. The sole
+optimization change is
+`0.8 × unweighted cross-entropy + 0.2 × Lovasz-Softmax`. Lovasz is computed at
+the native decoder-logit resolution over ground-truth-present known classes
+1-40; nearest interpolation preserves the integer target and target 255 is
+ignored. The lower resolution avoids making the sort-based loss dominate run
+time while CE and all held-out metrics remain full-resolution.
+
+The output is collision-safe under
+`/workspace/runs/segformer_b2_generalization_probe_ce_lovasz`. Its raw JSONL,
+TensorBoard data, epoch CSV, optimization plot, and overview plot separately
+record the total training objective, raw CE component, and raw Lovasz component.
+Select `checkpoints/best` by the same development known-class mIoU as every
+other development recipe. Judge success against both prior probes: require a
+repeatable hard-metric gain without a material regression in development CE,
+ObjectNav-six mIoU, or the train/development gap.
+
 ## 8.6 Reproduce the historical 160,000-step reference only when needed
 
 The following run is retained for provenance and controlled reproduction. It
-is not the next recommended command after the intermediate-LR experiment:
+is not the next recommended command after the CE+Lovasz experiment:
 
 ```bash
 hm3d-semseg train \
@@ -237,16 +266,16 @@ Every completed epoch evaluates the complete development manifest and updates
 
 ## 8.7 Monitor and accept development evidence
 
-For the current intermediate-LR comparison:
+For the current CE+Lovasz comparison:
 
 ```bash
 jq '{best: .development.best_known_class_miou,
      final: .development.final,
      optimization: .training.optimization}' \
-  /workspace/runs/segformer_b2_generalization_probe_intermediate_lr/records/metrics_summary.json
+  /workspace/runs/segformer_b2_generalization_probe_ce_lovasz/records/metrics_summary.json
 
 jq '{epoch, step, primary_metric, best_development_loss}' \
-  /workspace/runs/segformer_b2_generalization_probe_intermediate_lr/checkpoints/best/checkpoint.json
+  /workspace/runs/segformer_b2_generalization_probe_ce_lovasz/checkpoints/best/checkpoint.json
 ```
 
 Use the actual suffixed directory if necessary. Open
@@ -261,7 +290,8 @@ the evidence in this order:
 5. fixed qualitative development views across epochs;
 6. finite gradients, AMP skips, throughput, and peak GPU memory.
 
-Training cross-entropy diagnoses optimization; it does not select the model.
+Training objective and its CE/Lovasz components diagnose optimization; they do
+not select the model.
 Calibration metrics, risk-coverage, ECE, and temperature are secondary here and
 must not rescue a poor hard segmentation model. A rising development loss with
 flat mIoU still indicates worsening probability fit even if the argmax masks

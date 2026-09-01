@@ -20,7 +20,13 @@ def load_training_records(metrics_path: Path) -> List[Dict[str, Any]]:
 def summarize_training_metrics(metrics_path: Path) -> Dict[str, Any]:
     """Produce a human-sized digest without retaining step records in memory."""
     step_count = 0
-    step_loss: Dict[str, Any] = {"initial": None, "final": None, "minimum": None}
+    step_objective: Dict[str, Any] = {"initial": None, "final": None, "minimum": None}
+    step_cross_entropy: Dict[str, Any] = {
+        "initial": None,
+        "final": None,
+        "minimum": None,
+    }
+    step_lovasz: Dict[str, Any] = {"initial": None, "final": None, "minimum": None}
     epochs: List[Dict[str, Any]] = []
     development: List[Dict[str, Any]] = []
     early_stopping: Optional[Dict[str, Any]] = None
@@ -41,17 +47,17 @@ def summarize_training_metrics(metrics_path: Path) -> Dict[str, Any]:
             kind = item.get("kind")
             if kind == "train_step":
                 step_count += 1
-                loss = float(item["loss"])
                 position = int(item["step"])
-                if step_loss["initial"] is None:
-                    step_loss["initial"] = loss
+                objective = float(item.get("objective_loss", item["loss"]))
+                cross_entropy = float(item.get("cross_entropy_loss", item["loss"]))
+                lovasz = float(item.get("lovasz_loss", 0.0))
+                _update_series_summary(step_objective, position, objective)
+                _update_series_summary(step_cross_entropy, position, cross_entropy)
+                _update_series_summary(step_lovasz, position, lovasz)
+                if step_count == 1:
                     initial_learning_rates = [
                         float(value) for value in item.get("learning_rates", [])
                     ]
-                step_loss["final"] = loss
-                minimum = step_loss["minimum"]
-                if minimum is None or loss < float(minimum["value"]):
-                    step_loss["minimum"] = {"step": position, "value": loss}
                 final_learning_rates = [
                     float(value) for value in item.get("learning_rates", [])
                 ]
@@ -74,22 +80,53 @@ def summarize_training_metrics(metrics_path: Path) -> Dict[str, Any]:
                     nonfinite_gradients += 1
                 skipped_optimizer_steps += int(bool(item.get("optimizer_step_skipped", False)))
             elif kind == "train_epoch":
-                epochs.append(item)
+                epochs.append(
+                    {
+                        **item,
+                        "objective_loss": float(
+                            item.get("objective_loss", item["loss"])
+                        ),
+                        "cross_entropy_loss": float(
+                            item.get("cross_entropy_loss", item["loss"])
+                        ),
+                        "lovasz_loss": float(item.get("lovasz_loss", 0.0)),
+                    }
+                )
             elif kind == "development_epoch":
                 development.append(item)
             elif kind == "early_stopping":
                 early_stopping = item
 
     result: Dict[str, Any] = {
-        "schema_version": "1.0",
+        "schema_version": "1.1",
         "source": str(metrics_path.resolve()),
         "training": {
             "optimizer_steps_recorded": step_count,
             "epochs_recorded": len(epochs),
-            "step_cross_entropy": step_loss,
-            "epoch_cross_entropy": _series_summary(epochs, "loss", "epoch"),
+            "step_objective": step_objective,
+            "step_cross_entropy": step_cross_entropy,
+            "step_lovasz": step_lovasz,
+            "epoch_objective": _series_summary(
+                epochs, "objective_loss", "epoch"
+            ),
+            "epoch_cross_entropy": _series_summary(
+                epochs, "cross_entropy_loss", "epoch"
+            ),
+            "epoch_lovasz": _series_summary(epochs, "lovasz_loss", "epoch"),
+            "epoch_objective_history": [
+                {"epoch": int(item["epoch"]), "value": float(item["objective_loss"])}
+                for item in epochs
+            ],
             "epoch_cross_entropy_history": [
-                {"epoch": int(item["epoch"]), "value": float(item["loss"])} for item in epochs
+                {
+                    "epoch": int(item["epoch"]),
+                    "value": float(item["cross_entropy_loss"]),
+                }
+                for item in epochs
+            ],
+            "epoch_lovasz_history": [
+                {"epoch": int(item["epoch"]), "value": float(item["lovasz_loss"])}
+                for item in epochs
             ],
             "gradient_norm": {
                 "final": final_gradient,
@@ -115,6 +152,17 @@ def summarize_training_metrics(metrics_path: Path) -> Dict[str, Any]:
         "early_stopping": early_stopping,
     }
     return result
+
+
+def _update_series_summary(
+    summary: Dict[str, Any], position: int, value: float
+) -> None:
+    if summary["initial"] is None:
+        summary["initial"] = value
+    summary["final"] = value
+    minimum = summary["minimum"]
+    if minimum is None or value < float(minimum["value"]):
+        summary["minimum"] = {"step": position, "value": value}
 
 
 def _series_summary(

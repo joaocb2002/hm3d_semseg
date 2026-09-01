@@ -21,7 +21,7 @@ run directories do not need to move to the training-only server.
 
 ## 7.1 Complete the local training acceptance suite
 
-Run both from the workstation training environment after changing the recipe.
+Run these from the workstation training environment after changing the recipe.
 Fresh collision-safe run directories are intentional. Generic form:
 
 ```bash
@@ -35,6 +35,10 @@ hm3d-semseg train \
 
 hm3d-semseg train \
   --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_generalization_probe_ce_lovasz_smoke.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -52,6 +56,10 @@ hm3d-semseg train \
 hm3d-semseg train \
   --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_generalization_probe_ce_lovasz_smoke.yaml \
+  --local-config configs/local.yaml
 ```
 
 Use the exact directories printed by training. Open each
@@ -60,6 +68,10 @@ views. The ADE20K-recipe smoke run must finish its 1,000-step cap, held-out
 evaluation, fixed-shape augmentation, polynomial scheduler, and report with
 finite values. Its 1,024/256 subsets are too small to judge the recipe's
 generalization.
+
+The 256/64 CE+Lovasz smoke is narrower: it proves the new sort-based loss,
+gradient path, checkpoint metadata, and separate objective/CE/Lovasz artifacts
+work locally. Its held-out metrics are not evidence for accepting the recipe.
 
 ## 7.2 Freeze the workstation source
 

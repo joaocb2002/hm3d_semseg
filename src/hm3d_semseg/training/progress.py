@@ -48,6 +48,8 @@ class TrainingProgress:
         warmup_steps: int,
         learning_rate_schedule: str,
         learning_rate_schedule_steps: int,
+        cross_entropy_weight: float = 1.0,
+        lovasz_weight: float = 0.0,
     ) -> None:
         if not self.enabled:
             return
@@ -79,6 +81,13 @@ class TrainingProgress:
             f"decode_head_lr={head_learning_rate:.2e}, "
             f"weight_decay={weight_decay:g}, warmup_steps={warmup_steps}, "
             f"schedule={learning_rate_schedule}/{learning_rate_schedule_steps} steps",
+            file=output,
+            flush=True,
+        )
+        print(
+            "Training objective: "
+            f"{cross_entropy_weight:g} x cross-entropy + "
+            f"{lovasz_weight:g} x Lovasz-Softmax",
             file=output,
             flush=True,
         )

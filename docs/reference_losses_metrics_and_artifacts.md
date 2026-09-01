@@ -168,11 +168,34 @@ changing augmentation, schedule, batch, and optimizer grouping would prevent a
 causal interpretation. Test such a loss only as a later single-variable
 ablation if the corrected cross-entropy recipe leaves a specific failure.
 
+The checked `segformer_b2_generalization_probe_ce_lovasz.yaml` is that
+single-variable ablation. Its minibatch objective is
+
+$$
+\mathcal L_{\mathrm{train}}
+=
+0.8\,\mathcal L_{\mathrm{CE}}
++
+0.2\,\mathcal L_{\mathrm{Lovasz}}.
+$$
+
+The CE component is still the unweighted 41-way loss above. The Lovasz term is
+the convex Lovasz extension of Jaccard loss, macro-averaged over
+ground-truth-present known classes 1--40 in the minibatch. Unknown class 0 is
+not a positive macro class, but unknown pixels remain negatives for every known
+class; target 255 is removed. It runs on native decoder logits with a
+nearest-resized integer target so its per-class sorts remain practical. The
+development evaluator is unchanged and still computes full-resolution metrics.
+The raw objective, unscaled CE, and unscaled Lovasz values are all retained in
+JSONL, TensorBoard, CSV tables, and plots.
+
 ### How reported training and evaluation loss differ
 
-- Step loss is PyTorch's weighted or unweighted mean over valid locations in
-  the current optimization batch.
-- Recorded training epoch loss is the mean of recorded batch means.
+- Step CE is PyTorch's weighted or unweighted mean over valid locations in the
+  current optimization batch. For a mixed-loss experiment, step objective is
+  the configured weighted sum of CE and Lovasz.
+- Recorded training epoch objective and components are separate means of their
+  respective minibatch values.
 - Evaluation loss sums unweighted negative log-likelihood over all valid
   locations and divides once by the exact valid-location count.
 

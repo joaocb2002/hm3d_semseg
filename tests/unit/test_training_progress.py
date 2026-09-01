@@ -44,6 +44,7 @@ def test_training_progress_reports_setup_steps_and_live_metrics() -> None:
     assert "encoder_lr=1.00e-04" in output
     assert "decode_head_lr=1.00e-03" in output
     assert "schedule=polynomial/4 steps" in output
+    assert "1 x cross-entropy + 0 x Lovasz-Softmax" in output
     assert "1/4" in output
     assert "loss=1.2500" in output
     assert "phase=checkpoint" in output
