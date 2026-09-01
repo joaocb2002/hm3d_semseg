@@ -172,12 +172,32 @@ def test_ce_lovasz_smoke_is_bounded_and_exercises_mixed_loss() -> None:
         cli_overrides={"paths": {"generated_data_root": "/tmp/generated"}},
     )
 
-    assert config.training.max_train_samples == 256
-    assert config.training.max_development_samples == 64
-    assert config.training.epochs == 2
-    assert config.training.max_optimizer_steps == 256
+    assert config.training.max_train_samples == 1024
+    assert config.training.max_development_samples == 256
+    assert config.training.epochs == 10
+    assert config.training.max_optimizer_steps == 5120
+    assert config.training.learning_rate_schedule_steps == 5120
+    assert config.training.early_stopping_patience is None
     assert config.training.loss.cross_entropy_weight == pytest.approx(0.8)
     assert config.training.loss.lovasz_weight == pytest.approx(0.2)
+
+
+def test_all_smoke_recipes_run_ten_complete_epochs_without_early_stopping() -> None:
+    generated = Path("/tmp/generated")
+    for path in sorted(_experiment(".").glob("*_smoke.yaml")):
+        config = load_config(
+            command_config=path,
+            cli_overrides={
+                "paths": {"generated_data_root": str(generated)}
+            },
+        )
+        assert config.training.max_train_samples == 1024
+        assert config.training.max_development_samples == 256
+        assert config.training.batch_size == 2
+        assert config.training.epochs == 10
+        assert config.training.early_stopping_patience is None
+        if config.training.max_optimizer_steps is not None:
+            assert config.training.max_optimizer_steps == 5120
 
 
 def test_all_preexisting_recipes_remain_pure_cross_entropy() -> None:

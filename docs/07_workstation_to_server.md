@@ -34,6 +34,14 @@ hm3d-semseg train \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
+  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
   --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
 
@@ -54,6 +62,14 @@ hm3d-semseg train \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
+  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
   --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
 
@@ -64,14 +80,13 @@ hm3d-semseg train \
 
 Use the exact directories printed by training. Open each
 `ACTUAL_RUN/index.html`; tiny overfit should nearly memorize all four
-views. The ADE20K-recipe smoke run must finish its 1,000-step cap, held-out
-evaluation, fixed-shape augmentation, polynomial scheduler, and report with
-finite values. Its 1,024/256 subsets are too small to judge the recipe's
-generalization.
-
-The 256/64 CE+Lovasz smoke is narrower: it proves the new sort-based loss,
-gradient path, checkpoint metadata, and separate objective/CE/Lovasz artifacts
-work locally. Its held-out metrics are not evidence for accepting the recipe.
+views. Each smoke uses 1,024 training and 256 development samples for ten
+complete epochs at batch 2. Early stopping is explicitly disabled. The
+ADE20K-recipe smoke must exercise fixed-shape augmentation, full-head optimizer
+groups, and its 5,120-step polynomial schedule. The CE+Lovasz smoke must also
+produce finite mixed-loss gradients and separate objective/CE/Lovasz artifacts.
+The subset curves can expose gross failures, but their held-out metrics are too
+small and noisy to accept a real recipe.
 
 ## 7.2 Freeze the workstation source
 

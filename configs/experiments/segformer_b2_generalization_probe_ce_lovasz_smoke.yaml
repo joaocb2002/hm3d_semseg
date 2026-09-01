@@ -18,8 +18,8 @@ training:
   seed: 2027
   deterministic_algorithms: false
   device: auto
-  max_train_samples: 256
-  max_development_samples: 64
+  max_train_samples: 1024
+  max_development_samples: 256
   sample_selection: scene_diverse
   development_sample_selection: scene_diverse
   evaluate_train_subset: false
@@ -28,18 +28,19 @@ training:
   qualitative_samples: 10
   qualitative_every_epochs: 1
   run_name: segformer_b2_generalization_probe_ce_lovasz_smoke
-  epochs: 2
-  max_optimizer_steps: 256
+  epochs: 10
+  # 1,024 samples / batch 2 = 512 steps per epoch.
+  max_optimizer_steps: 5120
   batch_size: 2
   workers: 4
   encoder_learning_rate: 0.000006
   head_learning_rate: 0.0006
   weight_decay: 0.01
   learning_rate_schedule: polynomial
-  learning_rate_schedule_steps: 256
+  learning_rate_schedule_steps: 5120
   polynomial_power: 1.0
   warmup_fraction: 0.0
-  warmup_steps: 20
+  warmup_steps: 100
   warmup_start_factor: 0.000001
   gradient_accumulation_steps: 1
   gradient_clip_norm: 1.0

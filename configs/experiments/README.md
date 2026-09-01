@@ -13,18 +13,27 @@ experiments over already-generated datasets.
 | Config | Train data | Development data | Duration | Loss | Purpose |
 |---|---:|---:|---:|---|---|
 | `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 epochs | cross-entropy | Verify memorization and training mechanics. |
-| `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 2 epochs, at most 1,000 steps | cross-entropy | Exercise the new spatial and optimizer path locally. |
+| `segformer_b2_baseline_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the historical baseline augmentation, classifier-only high-LR group, and cosine schedule locally. |
+| `segformer_b2_moderately_balanced_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | inverse-square-root-weighted cross-entropy | Exercise the historical class-weighted path locally. |
+| `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the spatial, augmentation, full-head, and polynomial-schedule path locally. |
 | `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Historical official-style reference; retain for reproduction, not as the next run. |
 | `segformer_b2_generalization_probe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Test whether gentler encoder adaptation improves early held-out behavior and measure a deterministic train/development hard-metric gap. |
 | `segformer_b2_generalization_probe_intermediate_lr.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Controlled next comparison: change only encoder LR from `6e-6` to `2e-5` while keeping the stable probe protocol fixed. |
 | `segformer_b2_generalization_probe_ce_lovasz.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | `0.8 CE + 0.2 Lovasz-Softmax` | Controlled IoU-aligned follow-up: retain the stable `6e-6` encoder LR and add a modest known-class Lovasz term. |
-| `segformer_b2_generalization_probe_ce_lovasz_smoke.yaml` | 256 from `train-v1` | 64 from `development-v1` | 2 epochs / at most 256 steps | `0.8 CE + 0.2 Lovasz-Softmax` | Local integration check for the new loss, gradients, checkpoints, and component-aware artifacts; not performance evidence. |
+| `segformer_b2_generalization_probe_ce_lovasz_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | `0.8 CE + 0.2 Lovasz-Softmax` | Local diagnostic for the new loss, gradients, checkpoints, curves, and component-aware artifacts; not recipe-selection evidence. |
+
+There are four checked `_smoke.yaml` training recipes. Together with
+`overfit_tiny.yaml`, they make five workstation training diagnostics. Every
+smoke recipe uses 1,024/256 scene-diverse samples, batch 2, ten complete epochs,
+and explicitly disables early stopping. A smoke run may still stop on an
+exception or manual interruption, but not because development metrics stall.
 
 Smoke runs are integration tests, not recipe-selection evidence. Their small
 subsets give noisy and biased metrics. The old `baseline`,
 `moderately_balanced`, and corresponding smoke files remain checked historical
-controls, but they are not the next recommended commands. The completed
-comparison found no practically meaningful held-out mIoU gain from
+controls. Run all four smoke files for an exhaustive workstation regression,
+but do not use those subset results to choose a server recipe. The completed
+full-data comparison found no practically meaningful held-out mIoU gain from
 inverse-square-root weighting and worse results on several high-support and
 ObjectNav-relevant measures. The new recipe therefore retains ordinary
 per-pixel cross-entropy and corrects the training pipeline.

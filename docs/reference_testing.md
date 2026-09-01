@@ -1,8 +1,8 @@
 # Reference: testing and quality gates
 
 Testing is machine-specific. Renderer/HM3D integration remains on the licensed
-workstation; the workstation training environment runs tiny-overfit and two
-bounded smoke recipes; the server repeats tiny overfit as a hardware acceptance
+workstation; the workstation training environment runs tiny-overfit and the
+relevant bounded smoke recipes; the server repeats tiny overfit as a hardware acceptance
 test; and the returned checkpoint runs inference/camera checks on the ObjectNav
 host.
 

@@ -21,14 +21,16 @@ training:
   qualitative_every_epochs: 1
   run_name: segformer_b2_ade20k_recipe_smoke
   epochs: 10
-  max_optimizer_steps: 1000
+  # 1,024 samples / batch 2 = 512 steps per epoch; do not truncate the
+  # requested ten-epoch diagnostic after the old 1,000-step integration cap.
+  max_optimizer_steps: 5120
   batch_size: 2
   workers: 4
   encoder_learning_rate: 0.00006
   head_learning_rate: 0.0006
   weight_decay: 0.01
   learning_rate_schedule: polynomial
-  learning_rate_schedule_steps: 1000
+  learning_rate_schedule_steps: 5120
   polynomial_power: 1.0
   warmup_fraction: 0.0
   warmup_steps: 100
