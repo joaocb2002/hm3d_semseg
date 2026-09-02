@@ -137,6 +137,34 @@ def test_intermediate_lr_probe_changes_only_encoder_lr_and_run_name() -> None:
     assert intermediate == stable
 
 
+def test_inverse_sqrt_probe_changes_only_weighting_and_run_name() -> None:
+    generated = Path("/tmp/generated")
+    overrides = {"paths": {"generated_data_root": str(generated)}}
+    stable = load_config(
+        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        cli_overrides=overrides,
+    ).to_dict()
+    weighted = load_config(
+        command_config=_experiment(
+            "segformer_b2_generalization_probe_inverse_sqrt.yaml"
+        ),
+        cli_overrides=overrides,
+    ).to_dict()
+
+    assert stable["training"]["class_weighting"] == "none"
+    assert weighted["training"]["class_weighting"] == "inverse_sqrt"
+    assert weighted["training"]["class_weight_cap"] == pytest.approx(5.0)
+    assert weighted["training"]["run_name"] == (
+        "segformer_b2_generalization_probe_inverse_sqrt"
+    )
+
+    stable["training"]["class_weighting"] = weighted["training"][
+        "class_weighting"
+    ]
+    stable["training"]["run_name"] = weighted["training"]["run_name"]
+    assert weighted == stable
+
+
 def test_ce_lovasz_probe_changes_only_loss_and_run_name() -> None:
     generated = Path("/tmp/generated")
     overrides = {"paths": {"generated_data_root": str(generated)}}

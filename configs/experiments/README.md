@@ -18,6 +18,7 @@ experiments over already-generated datasets.
 | `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the spatial, augmentation, full-head, and polynomial-schedule path locally. |
 | `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Historical official-style reference; retain for reproduction, not as the next run. |
 | `segformer_b2_generalization_probe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Test whether gentler encoder adaptation improves early held-out behavior and measure a deterministic train/development hard-metric gap. |
+| `segformer_b2_generalization_probe_inverse_sqrt.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | inverse-square-root-weighted cross-entropy | Re-test class weighting under the stable probe protocol; only weighting and run name differ from the reference probe. |
 | `segformer_b2_generalization_probe_intermediate_lr.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Controlled next comparison: change only encoder LR from `6e-6` to `2e-5` while keeping the stable probe protocol fixed. |
 | `segformer_b2_generalization_probe_ce_lovasz.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | `0.8 CE + 0.2 Lovasz-Softmax` | Controlled IoU-aligned follow-up: retain the stable `6e-6` encoder LR and add a modest known-class Lovasz term. |
 | `segformer_b2_generalization_probe_ce_lovasz_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | `0.8 CE + 0.2 Lovasz-Softmax` | Local diagnostic for the new loss, gradients, checkpoints, curves, and component-aware artifacts; not recipe-selection evidence. |
@@ -44,6 +45,13 @@ segmentation metrics within a few tenths of a point. Do not extend that run to
 160,000 steps. The checked `intermediate_lr` follow-up changes exactly one
 optimization variable and asks whether more encoder adaptation can improve
 mIoU and pixel accuracy without restoring the old development-loss divergence.
+
+The `inverse_sqrt` probe is the contemporary controlled class-weighting
+comparison. It keeps the stable probe's data, seed, augmentation, parameter
+groups, learning rates, schedule, stopping rules, and evaluation unchanged;
+only `class_weighting` and the collision-safe run name differ. The older
+`baseline` and `moderately_balanced` pair remain historical controls so their
+completed runs can still be reproduced exactly.
 
 The subsequent `ce_lovasz` probe returns to the stable `6e-6` encoder LR and
 changes only the objective. Its cross-entropy term is the same unweighted

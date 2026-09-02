@@ -232,6 +232,24 @@ other development recipe. Judge success against both prior probes: require a
 repeatable hard-metric gain without a material regression in development CE,
 ObjectNav-six mIoU, or the train/development gap.
 
+### 8.5.3 Run the controlled inverse-square-root follow-up
+
+To isolate class weighting under the stable generalization protocol, run:
+
+```bash
+hm3d-semseg train \
+  --config configs/experiments/segformer_b2_generalization_probe_inverse_sqrt.yaml \
+  --local-config configs/local.yaml
+```
+
+On `knuth`, run it from `/workspace/repository/hm3d-semseg`. It is identical to
+the stable `6e-6` probe except for inverse-square-root weights computed from the
+selected training pixels and the distinct run name. The exact normalized,
+capped weight vector and its hash are preserved in the run artifacts. Compare
+it with the stable probe, not with a smoke run or the older batch-2 historical
+recipes. This closes the class-weighting ablation; it is not a reason to inspect
+`official-val-v1` or begin a weight-function sweep.
+
 ## 8.6 Reproduce the historical 160,000-step reference only when needed
 
 The following run is retained for provenance and controlled reproduction. It
