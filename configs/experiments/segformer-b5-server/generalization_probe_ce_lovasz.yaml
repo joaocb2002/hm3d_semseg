@@ -1,9 +1,8 @@
-# Controlled follow-up to segformer_b2_generalization_probe.yaml. The encoder
-# LR is the only experimental change: 2e-5 lies between the stable 6e-6 probe
-# and the over-specializing 6e-5 ADE20K-style run.
+# Controlled B5 follow-up. Only the loss and run name differ from the stable
+# B5 probe: 0.8 unweighted CE + 0.2 known-class Lovasz-Softmax.
 model:
-  model_id: nvidia/segformer-b2-finetuned-ade-512-512
-  revision: null  # Host-pinned revision comes from configs/local.yaml.
+  model_id: nvidia/segformer-b5-finetuned-ade-640-640
+  revision: "739f5d4692954e4a185eac280dec1ba5a7d52f1d"
   num_labels: 41
   align_corners: false
   local_files_only: true
@@ -11,6 +10,11 @@ training:
   datasets:
     train: train-v1
     development: development-v1
+  loss:
+    cross_entropy_weight: 0.8
+    lovasz_weight: 0.2
+    lovasz_include_unknown: false
+    lovasz_resolution: native
   seed: 2027
   deterministic_algorithms: false
   device: auto
@@ -23,14 +27,12 @@ training:
   save_min_development_loss_checkpoint: true
   qualitative_samples: 10
   qualitative_every_epochs: 1
-  run_name: segformer_b2_generalization_probe_intermediate_lr
+  run_name: segformer_b5_generalization_probe_ce_lovasz
   epochs: 15
   max_optimizer_steps: 48000
   batch_size: 16
   workers: 8
-  # Same head LR as the stable probe. Only pretrained encoder adaptation is
-  # increased, from 6e-6 to 2e-5; the older 160k run used 6e-5.
-  encoder_learning_rate: 0.00002
+  encoder_learning_rate: 0.000006
   head_learning_rate: 0.0006
   weight_decay: 0.01
   learning_rate_schedule: polynomial

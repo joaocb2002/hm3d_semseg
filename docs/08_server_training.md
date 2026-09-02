@@ -65,7 +65,7 @@ scale, crop, and photometric diversity.
 
 ## 8.3 Know the recommended recipe
 
-`configs/experiments/segformer_b2_ade20k_recipe.yaml` adapts the official
+`configs/experiments/segformer-b2-server/ade20k_recipe.yaml` adapts the official
 SegFormer-B2 ADE20K recipe:
 
 | Component | Frozen setting |
@@ -129,7 +129,7 @@ from pathlib import Path
 from hm3d_semseg.config import load_config
 
 config = load_config(
-    Path("configs/experiments/segformer_b2_ade20k_recipe.yaml"),
+    Path("configs/experiments/segformer-b2-server/ade20k_recipe.yaml"),
     Path("configs/local.yaml"),
 )
 print(config.training.train_dataset)
@@ -150,7 +150,7 @@ that tests gentler encoder adaptation on the complete recipe-development data:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_generalization_probe.yaml \
+  --config configs/experiments/segformer-b2-server/generalization_probe.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -185,7 +185,7 @@ diagnostics, checkpoint rules, and evaluation set remain identical:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_generalization_probe_intermediate_lr.yaml \
+  --config configs/experiments/segformer-b2-server/generalization_probe_intermediate_lr.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -209,7 +209,7 @@ After preserving the two CE probes, run the checked IoU-aligned comparison:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_generalization_probe_ce_lovasz.yaml \
+  --config configs/experiments/segformer-b2-server/generalization_probe_ce_lovasz.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -238,7 +238,7 @@ To isolate class weighting under the stable generalization protocol, run:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_generalization_probe_inverse_sqrt.yaml \
+  --config configs/experiments/segformer-b2-server/generalization_probe_inverse_sqrt.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -250,6 +250,56 @@ it with the stable probe, not with a smoke run or the older batch-2 historical
 recipes. This closes the class-weighting ablation; it is not a reason to inspect
 `official-val-v1` or begin a weight-function sweep.
 
+### 8.5.4 Run the matched SegFormer-B5 probes
+
+The B5 family tests model capacity without changing the training question. Its
+four configs correspond exactly to the four B2 generalization probes. Apart
+from the model ID, immutable model revision, and run name, each B5 resolved
+configuration equals its B2 counterpart. The first comparison deliberately
+keeps 512 x 512 crops even though the source B5 checkpoint was ADE-finetuned at
+640 x 640; changing architecture and crop resolution together would prevent
+causal attribution.
+
+Download the checked B5 snapshot once on `knuth`:
+
+```bash
+hm3d-semseg download-model \
+  --local-config configs/local.yaml \
+  --model-id nvidia/segformer-b5-finetuned-ade-640-640 \
+  --revision 739f5d4692954e4a185eac280dec1ba5a7d52f1d
+```
+
+Run the stable B5 probe first:
+
+```bash
+hm3d-semseg train \
+  --config configs/experiments/segformer-b5-server/generalization_probe.yaml \
+  --local-config configs/local.yaml
+```
+
+Only if that establishes a useful capacity gain should the three matched
+ablations consume additional server time:
+
+```bash
+hm3d-semseg train \
+  --config configs/experiments/segformer-b5-server/generalization_probe_intermediate_lr.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer-b5-server/generalization_probe_inverse_sqrt.yaml \
+  --local-config configs/local.yaml
+
+hm3d-semseg train \
+  --config configs/experiments/segformer-b5-server/generalization_probe_ce_lovasz.yaml \
+  --local-config configs/local.yaml
+```
+
+B5 has about 84.6 million parameters versus about 27.5 million for B2, so it
+will be slower and use substantially more memory. Batch 16 is retained for the
+controlled comparison and should fit the 96-GiB assigned GPU. Treat an actual
+CUDA out-of-memory error as evidence for a reviewed batch-8/accumulation-2
+fallback; do not change batch size during a live run.
+
 ## 8.6 Reproduce the historical 160,000-step reference only when needed
 
 The following run is retained for provenance and controlled reproduction. It
@@ -257,7 +307,7 @@ is not the next recommended command after the CE+Lovasz experiment:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_ade20k_recipe.yaml \
+  --config configs/experiments/segformer-b2-server/ade20k_recipe.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -332,10 +382,11 @@ configuration remain the archival evidence.
 
 Do not create the final experiment until the recipe-development report is
 accepted. Record the winning source YAML, its best epoch and step, and its
-schedule horizon. On the workstation, create a checked
-`configs/experiments/segformer_b2_final.yaml` from that winning recipe—not
-automatically from the historical 160,000-step file—and change the dataset and
-run identity:
+schedule horizon. On the workstation, create a checked `final.yaml` inside the
+winning model family: `configs/experiments/segformer-b2-server/final.yaml` for
+B2 or `configs/experiments/segformer-b5-server/final.yaml` for B5. Copy it from
+the winning probe—not automatically from the historical 160,000-step file—and
+change the dataset and run identity:
 
 ```yaml
 training:
@@ -344,7 +395,7 @@ training:
     development: null
   max_train_samples: null
   max_development_samples: null
-  run_name: segformer_b2_final
+  run_name: SELECTED_MODEL_final
   epochs: FROZEN_FINAL_EPOCHS
   max_optimizer_steps: FROZEN_FINAL_STEPS
   learning_rate_schedule_steps: FROZEN_FINAL_SCHEDULE_STEPS
@@ -359,15 +410,16 @@ fresh from the same pinned ADE checkpoint with `resume: null` and exposes all
 145 training scenes.
 
 Commit and push that final YAML on the workstation, check out its commit on the
-server, then run:
+server, then run the matching path. For example, if B5 wins:
 
 ```bash
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_final.yaml \
+  --config configs/experiments/segformer-b5-server/final.yaml \
   --local-config configs/local.yaml
 ```
 
-The expected root is `/workspace/runs/segformer_b2_final/`. With no development
+The expected root follows the checked `run_name`, for example
+`/workspace/runs/segformer_b5_final/`. With no development
 split, `checkpoints/last` at the frozen step is the protocol checkpoint;
 `checkpoints/best` only tracks training loss and is not generalization evidence.
 

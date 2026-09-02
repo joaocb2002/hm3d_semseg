@@ -2,7 +2,7 @@
 # Its subset metrics are not recipe-selection evidence.
 model:
   model_id: nvidia/segformer-b2-finetuned-ade-512-512
-  revision: null  # Host-pinned revision comes from configs/local.yaml.
+  revision: "de01bae28967510f9ddd496c60a969357195400c"
   num_labels: 41
   align_corners: false
   local_files_only: true

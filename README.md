@@ -1,7 +1,7 @@
 # HM3D semantic segmentation
 
 `hm3d-semseg` is a standalone, inspectable pipeline for rendering
-HM3D-Semantics v0.2 and fine-tuning SegFormer-B2 as the RGB perception component
+HM3D-Semantics v0.2 and fine-tuning SegFormer-B2 or SegFormer-B5 as the RGB perception component
 of an ObjectNav system. It produces one categorical distribution over 41 classes
 at every pixel: learnable `unknown` plus the 40 MPCAT40 classes. Invalid ground
 truth remains the separate target value `255` and is never a model output.
@@ -19,7 +19,7 @@ composed ObjectNav YAML ──> frozen camera profile ─┐
 HM3D meshes/navmeshes ──> deterministic poses ────┼─> versioned offline dataset
 semantic IDs ─> scene objects ─> Matterport TSV ──┘        │
                                                            v
-RGB ─> SegFormer-B2 ─> 41 logits ─> softmax/calibration ─> ObjectNav API
+RGB ─> SegFormer-B2/B5 ─> 41 logits ─> softmax/calibration ─> ObjectNav API
                               │
                               └─> streamed global + scene-macro evaluation
 ```
@@ -179,7 +179,7 @@ At the end, the workstation owns two linked but separate records:
 
 ```text
 /home/joaocb2002/projects/hm3d-semseg/                             # exact Git source
-/home/joaocb2002/hm3d-semseg-data/runs/server/segformer_b2_final/  # planned final run
+/home/joaocb2002/hm3d-semseg-data/runs/server/SELECTED_FINAL_RUN/  # planned final run
 └── checkpoints/last/                         # deployment input until optional calibration
 ```
 
@@ -189,8 +189,8 @@ audit minival; generate and validate the pilot; explicitly download the model;
 run the renderer smoke check; audit train/val; freeze the internal split;
 generate and validate all six offline datasets; run local tiny-overfit and the
 ADE20K-recipe smoke check; freeze the source commit; transfer complete datasets;
-recreate and accept the server environment; run the corrected recipe on
-development; freeze its selected step; refit on all 145 scenes; evaluate the
+recreate and accept the server environment; run controlled B2/B5 probes on
+development; freeze the selected model, recipe, and step; refit on all 145 scenes; evaluate the
 fixed 36-scene official validation set; optionally calibrate later on disjoint
 scenes; return and checksum the complete run; verify inference locally;
 integrate through the Python API; benchmark the actual ObjectNav host.
@@ -198,8 +198,9 @@ integrate through the Python API; benchmark the actual ObjectNav host.
 After every `train` command, open the collision-safe run directory's
 `index.html`. It is the human-facing dashboard; raw JSON/JSONL,
 confusion arrays, checkpoints, and provenance remain the reproducible source
-record. Historical baseline-versus-balanced comparisons remain reproducible,
-but the recommended next run is the unweighted ADE20K-style recipe.
+record. Historical baseline-versus-balanced comparisons remain reproducible;
+current probe configs are grouped by model and intended execution host under
+`configs/experiments/`.
 
 ## Known limitations
 
@@ -222,7 +223,8 @@ The pipeline follows the primary [Habitat-Lab](https://github.com/facebookresear
 [Habitat-Sim](https://github.com/facebookresearch/habitat-sim),
 [HM3D-Semantics](https://aihabitat.org/datasets/hm3d-semantics/),
 [SegFormer paper](https://arxiv.org/abs/2105.15203), and
-[NVIDIA SegFormer-B2 checkpoint](https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512).
+[NVIDIA SegFormer-B2 checkpoint](https://huggingface.co/nvidia/segformer-b2-finetuned-ade-512-512), and
+[NVIDIA SegFormer-B5 checkpoint](https://huggingface.co/nvidia/segformer-b5-finetuned-ade-640-640).
 The model download command records the resolved revision; weights are never
 redistributed here. Cite and comply with the HM3D, HM3D-Semantics, checkpoint,
 and source-code licenses in downstream work.

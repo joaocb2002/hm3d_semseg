@@ -6,7 +6,9 @@ to the server; step 7 creates a separate server-local file with server paths.
 
 Configuration is strict. Unknown keys fail. Precedence is CLI overrides, then
 `configs/local.yaml`, then the command/experiment YAML, then dataclass defaults.
-Every command saves or prints its resolved values.
+Every command saves or prints its resolved values. Keep host paths and
+`model.local_files_only` here, but do not place `model.revision` in the local
+file: model ID and immutable revision are paired in checked experiment configs.
 
 ```bash
 cp configs/local.example.yaml configs/local.yaml

@@ -1,27 +1,83 @@
 # Experiment configurations
 
 These YAML files configure model-weight training and optional development
-evaluation. `hm3d-semseg train` never fits a calibration temperature.
+evaluation. They are grouped by base model and intended execution host:
+
+```text
+configs/experiments/
+├── segformer-b2-workstation/  # tiny overfit and bounded smoke runs
+├── segformer-b2-server/       # full-data B2 recipes and controlled probes
+└── segformer-b5-server/       # full-data B5 probes matched to the B2 probes
+```
+
+Moving a YAML file into this layout changes only its command-line path. Model
+revision, data, seed, optimization, augmentation, evaluation, and run names are
+unchanged. Immutable pretrained revisions are now pinned in each checked
+experiment rather than in host-local configuration. `hm3d-semseg train` never
+fits a calibration temperature.
 
 The separate `hm3d-semseg smoke-test` command is a render-to-inference systems
 check implemented in Python; it is not a training recipe and does not consume
 an experiment YAML. Files ending in `_smoke.yaml` are bounded training
 experiments over already-generated datasets.
 
-## Planned sequence
+## B2 workstation diagnostics
 
 | Config | Train data | Development data | Duration | Loss | Purpose |
 |---|---:|---:|---:|---|---|
-| `overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 epochs | cross-entropy | Verify memorization and training mechanics. |
-| `segformer_b2_baseline_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the historical baseline augmentation, classifier-only high-LR group, and cosine schedule locally. |
-| `segformer_b2_moderately_balanced_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | inverse-square-root-weighted cross-entropy | Exercise the historical class-weighted path locally. |
-| `segformer_b2_ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the spatial, augmentation, full-head, and polynomial-schedule path locally. |
-| `segformer_b2_ade20k_recipe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 160,000 steps | cross-entropy | Historical official-style reference; retain for reproduction, not as the next run. |
-| `segformer_b2_generalization_probe.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Test whether gentler encoder adaptation improves early held-out behavior and measure a deterministic train/development hard-metric gap. |
-| `segformer_b2_generalization_probe_inverse_sqrt.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | inverse-square-root-weighted cross-entropy | Re-test class weighting under the stable probe protocol; only weighting and run name differ from the reference probe. |
-| `segformer_b2_generalization_probe_intermediate_lr.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | cross-entropy | Controlled next comparison: change only encoder LR from `6e-6` to `2e-5` while keeping the stable probe protocol fixed. |
-| `segformer_b2_generalization_probe_ce_lovasz.yaml` | all of 130-scene `train-v1` | all of 15-scene `development-v1` | at most 15 epochs / 48,000 steps, with patience 5 | `0.8 CE + 0.2 Lovasz-Softmax` | Controlled IoU-aligned follow-up: retain the stable `6e-6` encoder LR and add a modest known-class Lovasz term. |
-| `segformer_b2_generalization_probe_ce_lovasz_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | `0.8 CE + 0.2 Lovasz-Softmax` | Local diagnostic for the new loss, gradients, checkpoints, curves, and component-aware artifacts; not recipe-selection evidence. |
+| `segformer-b2-workstation/overfit_tiny.yaml` | 4 from `train-v1` | `null` | 50 epochs | cross-entropy | Verify memorization and training mechanics. |
+| `segformer-b2-workstation/baseline_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the historical baseline path locally. |
+| `segformer-b2-workstation/moderately_balanced_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | inverse-square-root-weighted cross-entropy | Exercise the historical class-weighted path locally. |
+| `segformer-b2-workstation/ade20k_recipe_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | cross-entropy | Exercise the spatial, augmentation, full-head, and polynomial-schedule path locally. |
+| `segformer-b2-workstation/generalization_probe_ce_lovasz_smoke.yaml` | 1,024 from `train-v1` | 256 from `development-v1` | 10 epochs / 5,120 steps | `0.8 CE + 0.2 Lovasz-Softmax` | Exercise the mixed-loss path and component-aware artifacts locally. |
+
+## B2 server recipes
+
+| Config | Duration | Loss or controlled change | Purpose |
+|---|---:|---|---|
+| `segformer-b2-server/baseline.yaml` | 20 epochs | historical CE pipeline | Preserve the original full-data control. |
+| `segformer-b2-server/moderately_balanced.yaml` | 20 epochs | historical inverse-square-root CE | Preserve the original paired class-weighting control. |
+| `segformer-b2-server/ade20k_recipe.yaml` | at most 160,000 steps | historical ADE-style CE pipeline | Preserve the completed long reference; do not run by default. |
+| `segformer-b2-server/generalization_probe.yaml` | at most 15 epochs / 48,000 steps, patience 5 | stable CE reference | Measure full-data held-out behavior and the train/development gap. |
+| `segformer-b2-server/generalization_probe_inverse_sqrt.yaml` | same | inverse-square-root CE | Change only class weighting and run name from the stable probe. |
+| `segformer-b2-server/generalization_probe_intermediate_lr.yaml` | same | encoder LR `6e-6` to `2e-5` | Change only encoder LR and run name from the stable probe. |
+| `segformer-b2-server/generalization_probe_ce_lovasz.yaml` | same | `0.8 CE + 0.2 Lovasz-Softmax` | Change only the loss and run name from the stable probe. |
+
+Every B2 server recipe uses all 51,215 frames from the 130-scene `train-v1`
+and evaluates all 3,729 frames from the disjoint 15-scene `development-v1`.
+
+## B5 server probes
+
+The four files under `segformer-b5-server/` correspond one-to-one with the B2
+`generalization_probe` files. Each B5 probe changes only `model_id`, pinned
+model revision, and `run_name` from its B2 counterpart. In particular, it keeps
+the same 512-pixel crop pipeline rather than introducing 640-pixel crops, so
+the first comparison isolates model capacity. B5 was ADE-finetuned at 640 x
+640 and accepts the checked 512 x 512 training crops.
+
+## Effective training augmentation
+
+Augmentation is applied online when a training sample is loaded; it does not
+create additional files in a generated dataset. The random sequence is
+reproducible from the run seed, epoch, and sample index. The checked recipes
+use these three regimes:
+
+| Recipes | Training-time behavior |
+|---|---|
+| `segformer-b2-workstation/overfit_tiny.yaml` | No random geometry, photometry, blur, or sensor noise. This is intentional: the four views must be memorized exactly. |
+| B2 `baseline`, `moderately_balanced`, and their workstation smoke variants | Preserve native shape; paired horizontal flip with probability 0.5; RGB-only brightness/contrast/color jitter of magnitude 0.1; RGB-only Gaussian blur with probability 0.05 and radius 0.5; RGB-only Gaussian sensor noise with standard deviation `0.01 * 255`. |
+| B2 `ade20k_recipe`, every B2 `generalization_probe*`, their corresponding workstation smoke variants, and every B5 probe | Fit the aligned RGB/mask pair inside a `2048 x 512` box at a uniformly sampled scale from 0.5 to 2.0; take a paired `512 x 512` crop, trying up to ten times to keep the largest valid class below 75% of the crop; paired horizontal flip with probability 0.5; ADE-style RGB-only randomized brightness, contrast, saturation, and hue; pad bottom/right to `512 x 512` when needed. |
+
+Every geometric operation is identical for RGB and mask; RGB resize is
+bilinear, mask resize is nearest-neighbor, and padded mask pixels are target
+255 (`ignore_index`). Photometric transforms affect RGB only. ImageNet
+normalization is always applied after the optional augmentation, but it is a
+deterministic model-input conversion rather than dataset augmentation.
+
+Development evaluation, explicit `evaluate` runs, train-subset diagnostics,
+and qualitative snapshots use `augment: false`: they preserve each stored
+sample's native geometry and apply only ImageNet normalization. Thus metrics
+are never computed on randomly augmented development images.
 
 There are four checked `_smoke.yaml` training recipes. Together with
 `overfit_tiny.yaml`, they make five workstation training diagnostics. Every
@@ -90,8 +146,9 @@ to different dataset roots and different protocol stages:
 | Final refit | `train-all-v1` (all 145 training scenes) | Refit the frozen recipe once using all official training scenes. This is a fresh render, not a concatenation of the other directories. |
 | Final evaluation | `official-val-v1` (36 official validation scenes) | Evaluate the frozen final checkpoint once. It never supplies gradients or selects the recipe. |
 
-After the new recipe run is accepted, create and commit a distinct checked
-`segformer_b2_final.yaml` based on it. It must use
+After a model and recipe are accepted, create and commit a distinct checked
+`segformer-b2-server/final.yaml` or `segformer-b5-server/final.yaml` based on
+the winner. It must use
 `train-all-v1`, set `development: null`, remove subset limits, use a distinct
 run name, and freeze the preselected duration. The file is deliberately not
 created before development selects that duration. The final refit uses
@@ -135,8 +192,8 @@ later explicit `evaluate` command. The exact protocol is documented in
   for less diagnostic I/O; development capture reuses the existing evaluation
   pass, while train capture adds at most ten unaugmented forward passes.
 - `class_weighting: inverse_sqrt` computes weights only from the selected
-  training pixels. It remains only for reproducing the historical weighted
-  ablation; the recommended recipe sets `class_weighting: none`.
+  training pixels. It appears in historical controls and one modern controlled
+  probe; the stable reference sets `class_weighting: none`.
 - `max_optimizer_steps` makes the polynomial schedule iteration-based. `epochs`
   remains a hard safety cap; training stops when either limit is reached.
 - `head_learning_rate` applies the official ten-times multiplier to the complete

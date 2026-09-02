@@ -1,8 +1,7 @@
-# Controlled follow-up to segformer_b2_generalization_probe.yaml. The only
-# optimization change is inverse-square-root class weighting of cross-entropy.
+# Full recipe-development run. Select the best checkpoint on development known-class mIoU.
 model:
   model_id: nvidia/segformer-b2-finetuned-ade-512-512
-  revision: null  # Host-pinned revision comes from configs/local.yaml.
+  revision: "de01bae28967510f9ddd496c60a969357195400c"
   num_labels: 41
   align_corners: false
   local_files_only: true
@@ -17,35 +16,33 @@ training:
   max_development_samples: null
   sample_selection: scene_diverse
   development_sample_selection: scene_diverse
-  evaluate_train_subset: true
-  train_subset_evaluation_samples: 2048
-  save_min_development_loss_checkpoint: true
+  evaluate_train_subset: false
   qualitative_samples: 10
   qualitative_every_epochs: 1
-  run_name: segformer_b2_generalization_probe_inverse_sqrt
-  epochs: 15
-  max_optimizer_steps: 48000
+  run_name: segformer_b2_ade20k_recipe
+  # 51,215 samples / batch 16 gives 3,201 steps/epoch. The 50-epoch guard
+  # permits the official 160,000-iteration schedule to finish.
+  epochs: 50
+  max_optimizer_steps: 160000
   batch_size: 16
   workers: 8
-  encoder_learning_rate: 0.000006
+  encoder_learning_rate: 0.00006
   head_learning_rate: 0.0006
   weight_decay: 0.01
   learning_rate_schedule: polynomial
-  learning_rate_schedule_steps: 48000
+  learning_rate_schedule_steps: 160000
   polynomial_power: 1.0
   warmup_fraction: 0.0
-  warmup_steps: 500
+  warmup_steps: 1500
   warmup_start_factor: 0.000001
   gradient_accumulation_steps: 1
   gradient_clip_norm: 1.0
   amp: true
   resume: null
   class_weights: null
-  # Compute weights from this run's selected training pixels, normalize them,
-  # cap them at 5.0, and preserve the exact vector and hash in the artifacts.
-  class_weighting: inverse_sqrt
+  class_weighting: none
   class_weight_cap: 5.0
-  early_stopping_patience: 5
+  early_stopping_patience: null
 augmentation:
   resize_base_width: 2048
   resize_base_height: 512

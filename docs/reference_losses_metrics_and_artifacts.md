@@ -168,7 +168,7 @@ changing augmentation, schedule, batch, and optimizer grouping would prevent a
 causal interpretation. Test such a loss only as a later single-variable
 ablation if the corrected cross-entropy recipe leaves a specific failure.
 
-The checked `segformer_b2_generalization_probe_ce_lovasz.yaml` is that
+The checked `segformer-b2-server/generalization_probe_ce_lovasz.yaml` is that
 single-variable ablation. Its minibatch objective is
 
 $$

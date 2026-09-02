@@ -37,7 +37,7 @@ hm3d-semseg evaluate \
   --checkpoint /server/runs/FINAL_RUN/checkpoints/last \
   --dataset /server/data/official-val-v1 \
   --output /server/runs/FINAL_RUN/evaluation-official-val \
-  --config /server/repository/hm3d-semseg/configs/experiments/FINAL_EXPERIMENT.yaml \
+  --config /server/repository/hm3d-semseg/configs/experiments/MODEL-server/FINAL_EXPERIMENT.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -61,7 +61,7 @@ hm3d-semseg evaluate \
   --checkpoint /workspace/runs/segformer_b2_final/checkpoints/last \
   --dataset /workspace/data/official-val-v1 \
   --output /workspace/runs/segformer_b2_final/evaluation-official-val \
-  --config /workspace/repository/hm3d-semseg/configs/experiments/segformer_b2_final.yaml \
+  --config /workspace/repository/hm3d-semseg/configs/experiments/segformer-b2-server/final.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -119,7 +119,7 @@ hm3d-semseg evaluate \
   --checkpoint /server/runs/FINAL_RUN/checkpoints/calibrated \
   --dataset /server/data/calibration-evaluation-v1 \
   --output /server/runs/FINAL_RUN/evaluation-calibration \
-  --config /server/repository/hm3d-semseg/configs/experiments/FINAL_EXPERIMENT.yaml \
+  --config /server/repository/hm3d-semseg/configs/experiments/MODEL-server/FINAL_EXPERIMENT.yaml \
   --local-config configs/local.yaml \
   --temperature FITTED_TEMPERATURE
 ```
@@ -132,7 +132,7 @@ hm3d-semseg evaluate \
   --checkpoint /workspace/runs/segformer_b2_final/checkpoints/calibrated \
   --dataset /workspace/data/calibration-evaluation-v1 \
   --output /workspace/runs/segformer_b2_final/evaluation-calibration \
-  --config /workspace/repository/hm3d-semseg/configs/experiments/segformer_b2_final.yaml \
+  --config /workspace/repository/hm3d-semseg/configs/experiments/segformer-b2-server/final.yaml \
   --local-config configs/local.yaml \
   --temperature FITTED_TEMPERATURE
 ```

@@ -1,7 +1,7 @@
-# Full recipe-development training. Calibration is a separate post-training step.
+# Bounded baseline integration trial. It does not perform calibration.
 model:
   model_id: nvidia/segformer-b2-finetuned-ade-512-512
-  revision: null  # Host-pinned revision comes from configs/local.yaml.
+  revision: "de01bae28967510f9ddd496c60a969357195400c"
   num_labels: 41
   align_corners: false
   local_files_only: true
@@ -12,15 +12,15 @@ training:
   seed: 2027
   deterministic_algorithms: false
   device: auto
-  max_train_samples: null
-  max_development_samples: null
+  max_train_samples: 1024
+  max_development_samples: 256
   sample_selection: scene_diverse
   development_sample_selection: scene_diverse
   evaluate_train_subset: false
   qualitative_samples: 10
   qualitative_every_epochs: 1
-  run_name: segformer_b2_baseline
-  epochs: 20
+  run_name: segformer_b2_baseline_smoke
+  epochs: 10
   batch_size: 2
   workers: 4
   encoder_learning_rate: 0.00006

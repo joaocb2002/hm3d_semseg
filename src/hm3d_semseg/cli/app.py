@@ -252,7 +252,7 @@ def train(
     local_config: Path = typer.Option(..., "--local-config", exists=True),
     show_progress: bool = typer.Option(True, "--progress/--no-progress"),
 ) -> None:
-    """Fine-tune SegFormer-B2, with exact resume and best/last checkpoints."""
+    """Fine-tune SegFormer, with exact resume and best/last checkpoints."""
     _print(
         run_training(
             load_config(command_config=config, local_config=local_config),

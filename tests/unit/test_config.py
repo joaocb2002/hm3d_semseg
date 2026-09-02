@@ -32,8 +32,11 @@ def _experiment(name: str) -> Path:
 @pytest.mark.parametrize(
     ("name", "weighting"),
     [
-        ("segformer_b2_baseline_smoke.yaml", "none"),
-        ("segformer_b2_moderately_balanced_smoke.yaml", "inverse_sqrt"),
+        ("segformer-b2-workstation/baseline_smoke.yaml", "none"),
+        (
+            "segformer-b2-workstation/moderately_balanced_smoke.yaml",
+            "inverse_sqrt",
+        ),
     ],
 )
 def test_development_smoke_recipes_are_bounded_and_scene_diverse(
@@ -62,7 +65,7 @@ def test_development_smoke_recipes_are_bounded_and_scene_diverse(
 def test_ade20k_recipe_is_explicit_and_iteration_bounded() -> None:
     generated = Path("/tmp/generated")
     config = load_config(
-        command_config=_experiment("segformer_b2_ade20k_recipe.yaml"),
+        command_config=_experiment("segformer-b2-server/ade20k_recipe.yaml"),
         cli_overrides={"paths": {"generated_data_root": str(generated)}},
     )
 
@@ -89,7 +92,7 @@ def test_ade20k_recipe_is_explicit_and_iteration_bounded() -> None:
 def test_generalization_probe_uses_full_training_and_bounded_diagnostics() -> None:
     generated = Path("/tmp/generated")
     config = load_config(
-        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        command_config=_experiment("segformer-b2-server/generalization_probe.yaml"),
         cli_overrides={"paths": {"generated_data_root": str(generated)}},
     )
 
@@ -114,12 +117,12 @@ def test_intermediate_lr_probe_changes_only_encoder_lr_and_run_name() -> None:
     generated = Path("/tmp/generated")
     overrides = {"paths": {"generated_data_root": str(generated)}}
     stable = load_config(
-        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        command_config=_experiment("segformer-b2-server/generalization_probe.yaml"),
         cli_overrides=overrides,
     ).to_dict()
     intermediate = load_config(
         command_config=_experiment(
-            "segformer_b2_generalization_probe_intermediate_lr.yaml"
+            "segformer-b2-server/generalization_probe_intermediate_lr.yaml"
         ),
         cli_overrides=overrides,
     ).to_dict()
@@ -141,12 +144,12 @@ def test_inverse_sqrt_probe_changes_only_weighting_and_run_name() -> None:
     generated = Path("/tmp/generated")
     overrides = {"paths": {"generated_data_root": str(generated)}}
     stable = load_config(
-        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        command_config=_experiment("segformer-b2-server/generalization_probe.yaml"),
         cli_overrides=overrides,
     ).to_dict()
     weighted = load_config(
         command_config=_experiment(
-            "segformer_b2_generalization_probe_inverse_sqrt.yaml"
+            "segformer-b2-server/generalization_probe_inverse_sqrt.yaml"
         ),
         cli_overrides=overrides,
     ).to_dict()
@@ -169,12 +172,12 @@ def test_ce_lovasz_probe_changes_only_loss_and_run_name() -> None:
     generated = Path("/tmp/generated")
     overrides = {"paths": {"generated_data_root": str(generated)}}
     stable = load_config(
-        command_config=_experiment("segformer_b2_generalization_probe.yaml"),
+        command_config=_experiment("segformer-b2-server/generalization_probe.yaml"),
         cli_overrides=overrides,
     ).to_dict()
     ce_lovasz = load_config(
         command_config=_experiment(
-            "segformer_b2_generalization_probe_ce_lovasz.yaml"
+            "segformer-b2-server/generalization_probe_ce_lovasz.yaml"
         ),
         cli_overrides=overrides,
     ).to_dict()
@@ -195,7 +198,7 @@ def test_ce_lovasz_probe_changes_only_loss_and_run_name() -> None:
 def test_ce_lovasz_smoke_is_bounded_and_exercises_mixed_loss() -> None:
     config = load_config(
         command_config=_experiment(
-            "segformer_b2_generalization_probe_ce_lovasz_smoke.yaml"
+            "segformer-b2-workstation/generalization_probe_ce_lovasz_smoke.yaml"
         ),
         cli_overrides={"paths": {"generated_data_root": "/tmp/generated"}},
     )
@@ -210,9 +213,48 @@ def test_ce_lovasz_smoke_is_bounded_and_exercises_mixed_loss() -> None:
     assert config.training.loss.lovasz_weight == pytest.approx(0.2)
 
 
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        "generalization_probe.yaml",
+        "generalization_probe_intermediate_lr.yaml",
+        "generalization_probe_inverse_sqrt.yaml",
+        "generalization_probe_ce_lovasz.yaml",
+    ],
+)
+def test_b5_probe_changes_only_model_identity_and_run_name(recipe: str) -> None:
+    generated = Path("/tmp/generated")
+    overrides = {"paths": {"generated_data_root": str(generated)}}
+    b2 = load_config(
+        command_config=_experiment(f"segformer-b2-server/{recipe}"),
+        cli_overrides=overrides,
+    ).to_dict()
+    b5 = load_config(
+        command_config=_experiment(f"segformer-b5-server/{recipe}"),
+        cli_overrides=overrides,
+    ).to_dict()
+
+    assert b2["model"]["model_id"] == (
+        "nvidia/segformer-b2-finetuned-ade-512-512"
+    )
+    assert b2["model"]["revision"] == (
+        "de01bae28967510f9ddd496c60a969357195400c"
+    )
+    assert b5["model"]["model_id"] == (
+        "nvidia/segformer-b5-finetuned-ade-640-640"
+    )
+    assert b5["model"]["revision"] == (
+        "739f5d4692954e4a185eac280dec1ba5a7d52f1d"
+    )
+
+    b2["model"] = b5["model"]
+    b2["training"]["run_name"] = b5["training"]["run_name"]
+    assert b5 == b2
+
+
 def test_all_smoke_recipes_run_ten_complete_epochs_without_early_stopping() -> None:
     generated = Path("/tmp/generated")
-    for path in sorted(_experiment(".").glob("*_smoke.yaml")):
+    for path in sorted(_experiment(".").rglob("*_smoke.yaml")):
         config = load_config(
             command_config=path,
             cli_overrides={
@@ -229,10 +271,10 @@ def test_all_smoke_recipes_run_ten_complete_epochs_without_early_stopping() -> N
 
 
 def test_all_preexisting_recipes_remain_pure_cross_entropy() -> None:
-    for path in sorted(_experiment(".").glob("*.yaml")):
+    for path in sorted(_experiment(".").rglob("*.yaml")):
         if path.name in {
-            "segformer_b2_generalization_probe_ce_lovasz.yaml",
-            "segformer_b2_generalization_probe_ce_lovasz_smoke.yaml",
+            "generalization_probe_ce_lovasz.yaml",
+            "generalization_probe_ce_lovasz_smoke.yaml",
         }:
             continue
         config = load_config(
@@ -245,7 +287,7 @@ def test_all_preexisting_recipes_remain_pure_cross_entropy() -> None:
 
 def test_tiny_overfit_explicitly_disables_development_dataset() -> None:
     config = load_config(
-        command_config=_experiment("overfit_tiny.yaml"),
+        command_config=_experiment("segformer-b2-workstation/overfit_tiny.yaml"),
         cli_overrides={
             "paths": {"generated_data_root": "/tmp/generated"},
             "training": {"development_dataset": "/tmp/legacy-development"},

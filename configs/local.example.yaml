@@ -24,9 +24,8 @@ taxonomy:
   expected_mapping_sha256: 36e40c25cbe32c8bf34ef55f199f194671045106914dd09b1581aeedcf051a05
 
 model:
-  # Paste the resolved_revision printed by `hm3d-semseg download-model`.
-  # Training searches paths.cache_root for this exact snapshot.
-  revision: null
+  # Immutable model revisions belong to checked experiment/model configs so
+  # one host configuration can safely run more than one SegFormer size.
   local_files_only: true
 
 training:

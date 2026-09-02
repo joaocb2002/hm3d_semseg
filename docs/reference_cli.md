@@ -33,9 +33,10 @@
   completion. Progress is enabled unless `--no-progress` is passed.
 - `validate-dataset` checks the global manifest contract and fully decodes the
   selected root's RGB/mask files.
-- `download-model --revision` should receive an immutable commit. The current
-  frozen SegFormer revision is
-  `de01bae28967510f9ddd496c60a969357195400c`.
+- `download-model --revision` should receive the immutable commit paired with
+  the selected experiment: B2 uses
+  `de01bae28967510f9ddd496c60a969357195400c`; B5 uses
+  `739f5d4692954e4a185eac280dec1ba5a7d52f1d`.
 - `train` shows the optimizer-step plan, ETA, loss, learning rates, throughput,
   device, AMP, and parameters. Fresh run-name collisions allocate a numeric
   suffix; only explicit resume appends to an existing run. It automatically
@@ -73,7 +74,7 @@ hm3d-semseg evaluate \
   --checkpoint /server/runs/FINAL_RUN/checkpoints/last \
   --dataset /server/data/official-val-v1 \
   --output /server/runs/FINAL_RUN/evaluation-official-val \
-  --config /server/repository/hm3d-semseg/configs/experiments/FINAL_EXPERIMENT.yaml \
+  --config /server/repository/hm3d-semseg/configs/experiments/MODEL-server/FINAL_EXPERIMENT.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -100,7 +101,7 @@ hm3d-semseg evaluate \
   --checkpoint /workspace/runs/segformer_b2_final/checkpoints/last \
   --dataset /workspace/data/official-val-v1 \
   --output /workspace/runs/segformer_b2_final/evaluation-official-val \
-  --config /workspace/repository/hm3d-semseg/configs/experiments/segformer_b2_final.yaml \
+  --config /workspace/repository/hm3d-semseg/configs/experiments/segformer-b2-server/final.yaml \
   --local-config configs/local.yaml
 ```
 

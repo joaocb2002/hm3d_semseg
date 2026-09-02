@@ -1,4 +1,4 @@
-"""Hugging Face SegFormer-B2 adapted to 41 project classes."""
+"""Hugging Face SegFormer models adapted to 41 project classes."""
 
 from __future__ import annotations
 

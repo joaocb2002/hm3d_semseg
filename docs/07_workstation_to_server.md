@@ -30,23 +30,23 @@ export PYTHONNOUSERSITE=1
 cd /path/to/hm3d-semseg
 
 hm3d-semseg train \
-  --config configs/experiments/overfit_tiny.yaml \
+  --config configs/experiments/segformer-b2-workstation/overfit_tiny.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/baseline_smoke.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/moderately_balanced_smoke.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_generalization_probe_ce_lovasz_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/generalization_probe_ce_lovasz_smoke.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -58,23 +58,23 @@ export PYTHONNOUSERSITE=1
 cd /home/joaocb2002/projects/hm3d-semseg
 
 hm3d-semseg train \
-  --config configs/experiments/overfit_tiny.yaml \
+  --config configs/experiments/segformer-b2-workstation/overfit_tiny.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_baseline_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/baseline_smoke.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_moderately_balanced_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/moderately_balanced_smoke.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_ade20k_recipe_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/ade20k_recipe_smoke.yaml \
   --local-config configs/local.yaml
 
 hm3d-semseg train \
-  --config configs/experiments/segformer_b2_generalization_probe_ce_lovasz_smoke.yaml \
+  --config configs/experiments/segformer-b2-workstation/generalization_probe_ce_lovasz_smoke.yaml \
   --local-config configs/local.yaml
 ```
 
@@ -361,7 +361,6 @@ camera:
   allow_mismatch: false
 
 model:
-  revision: "PINNED_HUGGING_FACE_COMMIT"
   local_files_only: true
 
 training:
@@ -381,25 +380,35 @@ camera:
   allow_mismatch: false
 
 model:
-  revision: "de01bae28967510f9ddd496c60a969357195400c"
   local_files_only: true
 
 training:
   device: auto
 ```
 
-The pinned revision is the workstation-resolved
-`nvidia/segformer-b2-finetuned-ade-512-512` commit. Download exactly that
-snapshot:
+Model identity and immutable revision now live together in each checked
+experiment YAML. This prevents a host-local B2 revision from being accidentally
+combined with a B5 model ID. Download every model family that will run on the
+server using the corresponding checked revision:
 
 ```bash
 hm3d-semseg download-model \
   --local-config configs/local.yaml \
   --model-id nvidia/segformer-b2-finetuned-ade-512-512 \
-  --revision PINNED_HUGGING_FACE_COMMIT
+  --revision de01bae28967510f9ddd496c60a969357195400c
+
+hm3d-semseg download-model \
+  --local-config configs/local.yaml \
+  --model-id nvidia/segformer-b5-finetuned-ade-640-640 \
+  --revision 739f5d4692954e4a185eac280dec1ba5a7d52f1d
 ```
 
-Current command:
+The B5 command is unnecessary when only reproducing B2. The printed
+`resolved_revision` must match the requested SHA exactly. With
+`local_files_only: true`, later training cannot silently change either
+pretrained input.
+
+For B2-only historical checkouts, the command remains:
 
 ```bash
 hm3d-semseg download-model \
@@ -408,8 +417,6 @@ hm3d-semseg download-model \
   --revision de01bae28967510f9ddd496c60a969357195400c
 ```
 
-The printed `resolved_revision` must match exactly. `local_files_only: true`
-then prevents later training from silently changing the pretrained input.
 
 ## 7.8 Validate the transferred roots
 
@@ -447,7 +454,7 @@ export CUDA_VISIBLE_DEVICES=0
 cd /workspace/repository/hm3d-semseg
 
 hm3d-semseg train \
-  --config configs/experiments/overfit_tiny.yaml \
+  --config configs/experiments/segformer-b2-workstation/overfit_tiny.yaml \
   --local-config configs/local.yaml
 ```
 
